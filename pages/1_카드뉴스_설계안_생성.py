@@ -7,6 +7,31 @@ import streamlit as st
 
 DB_PATH = Path("eafi_benchmark.db")
 
+TEMPLATE_OPTIONS = [
+    "문제폭로형",
+    "오해반박형",
+    "전후비교형",
+    "체크리스트형",
+    "케이스분석형",
+    "교육노하우형",
+]
+
+VISUAL_STYLES = [
+    "브랜드 캐릭터 중심",
+    "실사 오피스 시네마틱",
+    "인포그래픽 중심",
+    "전후 비교형",
+    "제품/포트폴리오 중심",
+    "혼합형",
+]
+
+TONE_LEVELS = {
+    "담백": 0,
+    "명확": 1,
+    "강한 후킹": 2,
+    "자극적": 3,
+}
+
 
 def connect_db():
     conn = sqlite3.connect(DB_PATH)
@@ -79,35 +104,194 @@ def load_plans():
     return df
 
 
-def build_cardnews_plan(row, target_customer, cta):
-    title = row.get("eafi_application") or row.get("title") or "EAFi 카드뉴스"
-    hook = row.get("hook_point") or "영상 제작에서 가장 크게 놓치는 문제"
-    structure = row.get("structure_note") or "문제 제기 → 원인 분석 → 해결 방식 → 실행 제안"
-    visual = row.get("visual_note") or "비포/애프터 비교, 제작 프로세스, 체크리스트형 그래픽"
-    application = row.get("eafi_application") or title
+def clean(value, fallback=""):
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    if text.lower() in ["nan", "none", "null"]:
+        return fallback
+    return text or fallback
+
+
+def shorten(text, max_len=80):
+    text = clean(text)
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
+def build_context(row, inputs):
+    source_title = clean(row.get("title"), "벤치마크 콘텐츠")
+    hook_point = clean(row.get("hook_point"), source_title)
+    structure_note = clean(row.get("structure_note"), "문제 제기 → 원인 분석 → 해결 방식 → 실행 제안")
+    visual_note = clean(row.get("visual_note"), "브랜드 톤에 맞는 실사/인포그래픽 혼합 구성")
+    application = clean(row.get("eafi_application"), source_title)
+    channel_name = clean(row.get("channel_name"), "벤치마크 채널")
+    platform = clean(row.get("platform"), "플랫폼")
+
+    content_angle = clean(inputs.get("content_angle"), application)
+    core_problem = clean(inputs.get("core_problem"), hook_point)
+    insight = clean(inputs.get("insight"), structure_note)
+    solution = clean(inputs.get("solution"), f"{inputs['brand_name']}는 결과물의 분위기보다 목적, 타깃, 메시지, 전환 흐름을 먼저 설계합니다")
+    proof = clean(inputs.get("proof"), "기획 단계에서 구조를 잡으면 수정 횟수와 제작 리스크를 줄일 수 있습니다")
+    offer = clean(inputs.get("offer"), "브랜드 필름, 제품 영상, 유튜브 콘텐츠까지 전환 구조를 기준으로 설계")
+
+    return {
+        "source_title": source_title,
+        "hook_point": hook_point,
+        "structure_note": structure_note,
+        "visual_note": visual_note,
+        "application": application,
+        "channel_name": channel_name,
+        "platform": platform,
+        "content_angle": content_angle,
+        "core_problem": core_problem,
+        "insight": insight,
+        "solution": solution,
+        "proof": proof,
+        "offer": offer,
+        "target_customer": inputs["target_customer"],
+        "cta": inputs["cta"],
+        "brand_name": inputs["brand_name"],
+        "visual_style": inputs["visual_style"],
+        "tone_level": inputs["tone_level"],
+    }
+
+
+def hookify(text, tone_level):
+    text = clean(text)
+    if tone_level == "담백":
+        return text
+    if tone_level == "명확":
+        return text
+    if tone_level == "강한 후킹":
+        return text if any(word in text for word in ["왜", "이유", "문제", "진짜"]) else f"{text}\n진짜 문제는 따로 있습니다"
+    return text if any(word in text for word in ["왜", "망", "큰일", "문제", "진짜"]) else f"{text}\n그냥 넘기면 계속 새는 지점입니다"
+
+
+def build_image_direction(ctx, slide_no, role):
+    brand = ctx["brand_name"]
+    visual_style = ctx["visual_style"]
+    base = f"{brand} 브랜드 팔레트인 레드, 블랙, 웜 그레이를 사용한 1:1 카드뉴스 이미지. 공식 로고와 캐릭터 톤을 유지. "
+
+    if visual_style == "브랜드 캐릭터 중심":
+        character = "메인 캐릭터가 빨간 캡과 빨간 폴로를 입고 등장. 개구리 엠블럼은 모자/옷의 작은 패치로만 사용. "
+    elif visual_style == "실사 오피스 시네마틱":
+        character = "현대적인 어두운 오피스/편집실의 시네마틱 실사 장면. 필요한 경우 메인 캐릭터를 자연스럽게 배치. "
+    elif visual_style == "인포그래픽 중심":
+        character = "텍스트 없이도 이해되는 고급 인포그래픽, 아이콘, 다이어그램 중심. 메인 캐릭터는 작게 보조 요소로만 배치. "
+    elif visual_style == "전후 비교형":
+        character = "좌우 비교 구도. 왼쪽은 문제 상황, 오른쪽은 정리된 해결 상황. 메인 캐릭터는 해결 쪽에 자연스럽게 배치. "
+    elif visual_style == "제품/포트폴리오 중심":
+        character = "노트북, 포트폴리오, 영상 플레이어, 제품 컷, 브랜드 웹사이트 목업 중심. 캐릭터는 신뢰감을 주는 보조 인물로 배치. "
+    else:
+        character = "실사 장면과 인포그래픽을 혼합하고, 메인 캐릭터를 핵심 시선 유도 요소로 배치. "
+
+    role_map = {
+        "hook": "강한 문제 제기 장면. 보는 사람이 멈추도록 큰 대비와 여백을 확보.",
+        "problem": "문제가 발생하는 원인을 시각화. 복잡한 수정, 낮은 전환, 불명확한 타깃 같은 신호를 세련되게 표현.",
+        "analysis": "원인과 구조를 보여주는 다이어그램/체크리스트/흐름도 중심의 장면.",
+        "compare": "비포/애프터 비교. 혼란스러운 제작과 구조화된 제작의 차이를 명확히 표현.",
+        "solution": "브랜드가 해결 구조를 설계하는 장면. 스토리보드, 무드보드, 전환 퍼널, 편집 타임라인이 정리되어 있음.",
+        "cta": "프리미엄 포트폴리오/견적 문의 장면. 노트북 웹사이트 목업과 CTA가 자연스럽게 보이는 마무리 컷.",
+        "case": "벤치마크 콘텐츠를 분석하는 장면. 원본 레퍼런스에서 배운 구조를 브랜드 방식으로 재해석하는 느낌.",
+        "checklist": "체크리스트형 카드. 핵심 항목이 시각적으로 정돈된 고급 UI/보드 구성.",
+    }
+    return base + character + role_map.get(role, "고급스럽고 명확한 카드뉴스용 장면.")
+
+
+def build_plan_by_template(ctx, template_name):
+    brand = ctx["brand_name"]
+    angle = ctx["content_angle"]
+    problem = ctx["core_problem"]
+    insight = ctx["insight"]
+    solution = ctx["solution"]
+    proof = ctx["proof"]
+    offer = ctx["offer"]
+    cta = ctx["cta"]
+    target = ctx["target_customer"]
+    source_title = ctx["source_title"]
+    tone_level = ctx["tone_level"]
+
+    if template_name == "문제폭로형":
+        slides = [
+            hookify(f"{angle}\n문제는 겉으로 보이는 곳에 있지 않습니다", tone_level),
+            f"많은 {target}가 결과물만 보다가\n진짜 병목을 놓칩니다\n핵심 문제는 {shorten(problem, 55)}입니다",
+            f"대부분 여기서부터 꼬입니다\n{shorten(insight, 95)}",
+            f"그래서 먼저 봐야 할 건\n무엇을 만들지가 아니라\n왜 만들고, 누구를 움직일지입니다",
+            f"{brand}는 이렇게 봅니다\n{shorten(solution, 95)}",
+            f"멋진 결과물보다\n전환되는 구조가 필요하다면\n{cta}",
+        ]
+        roles = ["hook", "problem", "analysis", "compare", "solution", "cta"]
+
+    elif template_name == "오해반박형":
+        wrong_belief = "편집 퀄리티"
+        slides = [
+            hookify(f"이건 {wrong_belief} 문제가 아닙니다", tone_level),
+            f"많은 사람이 {wrong_belief}만 고칩니다\n그런데 문의가 안 늘면\n문제는 다른 곳에 있습니다",
+            f"놓친 건 이것입니다\n{shorten(problem, 85)}",
+            f"영상은 예쁘게 보이는 순간보다\n고객이 납득하고 움직이는 흐름이 더 중요합니다",
+            f"{brand}는 분위기보다 구조를 먼저 잡습니다\n{shorten(solution, 85)}",
+            f"{offer}\n필요하다면 {cta}",
+        ]
+        roles = ["hook", "problem", "analysis", "compare", "solution", "cta"]
+
+    elif template_name == "전후비교형":
+        slides = [
+            hookify(f"같은 영상도\n결과가 갈리는 이유", tone_level),
+            f"기획 없이 만들면\n수정은 늘고 메시지는 흐려집니다\n{shorten(problem, 65)}",
+            f"구조를 잡고 만들면\n목적, 타깃, 메시지, CTA가 한 방향으로 움직입니다",
+            f"Before\n예쁜데 문의가 없는 영상\nAfter\n고객 행동까지 설계된 영상",
+            f"{brand}는 제작 전에 이 흐름을 먼저 설계합니다\n{shorten(insight, 80)}",
+            f"{offer}\n{cta}",
+        ]
+        roles = ["hook", "problem", "analysis", "compare", "solution", "cta"]
+
+    elif template_name == "체크리스트형":
+        slides = [
+            hookify(f"영상 만들기 전\n이 4개는 먼저 정리하세요", tone_level),
+            "1. 목적\n이 영상이 인지도, 신뢰, 문의 중 무엇을 만들 것인지 정해야 합니다",
+            "2. 타깃\n누구에게 말하는 영상인지 흐리면 메시지도 흐려집니다",
+            "3. 메시지\n고객이 기억해야 할 한 문장이 먼저 필요합니다",
+            "4. CTA\n본 뒤에 무엇을 해야 하는지까지 설계해야 전환이 생깁니다",
+            f"이 4개가 정리되지 않았다면\n{brand}와 구조부터 잡아보세요\n{cta}",
+        ]
+        roles = ["hook", "checklist", "checklist", "checklist", "checklist", "cta"]
+
+    elif template_name == "케이스분석형":
+        slides = [
+            hookify(f"{shorten(source_title, 30)}\n우리가 봐야 할 건 조회수가 아닙니다", tone_level),
+            f"이 레퍼런스에서 봐야 할 건\n겉모습보다 전개 구조입니다\n출처: {ctx['platform']} · {ctx['channel_name']}",
+            f"핵심 구조\n{shorten(insight, 105)}",
+            f"이걸 {target} 관점으로 바꾸면\n{shorten(angle, 65)}라는 주제가 됩니다",
+            f"{brand} 적용 방식\n{shorten(solution, 95)}",
+            f"비슷한 구조의 콘텐츠가 필요하다면\n{cta}",
+        ]
+        roles = ["case", "analysis", "analysis", "compare", "solution", "cta"]
+
+    else:  # 교육노하우형
+        slides = [
+            hookify(f"{angle}\n이 원리만 알면 훨씬 선명해집니다", tone_level),
+            f"영상은 장면의 나열이 아니라\n고객의 판단 순서를 설계하는 일입니다",
+            f"첫 번째는 문제 인식\n{shorten(problem, 80)}",
+            f"두 번째는 납득 구조\n{shorten(proof, 80)}",
+            f"세 번째는 행동 유도\n{shorten(solution, 80)}",
+            f"{offer}\n{cta}",
+        ]
+        roles = ["hook", "analysis", "problem", "analysis", "solution", "cta"]
+
+    images = [build_image_direction(ctx, idx + 1, role) for idx, role in enumerate(roles)]
+    title = f"[{template_name}] {shorten(angle, 45)}"
+    main_message = f"{brand}는 {target}를 위해 결과물의 분위기보다 전환 구조를 먼저 설계한다. 핵심 인사이트: {shorten(insight, 100)}"
 
     return {
         "title": title,
-        "target_customer": target_customer,
-        "core_problem": hook,
-        "main_message": f"{application}을 통해 단순히 멋진 영상이 아니라 문의로 이어지는 제작 구조를 보여준다.",
+        "target_customer": target,
+        "core_problem": problem,
+        "main_message": main_message,
         "cta": cta,
-        "slides": [
-            f"{hook}",
-            "많은 기업이 영상 제작을 시작할 때 결과물보다 먼저 놓치는 것이 있습니다. 바로 제작 목적과 전환 경로입니다.",
-            f"벤치마크 구조: {structure}",
-            "EAFi는 영상의 예쁨보다 먼저 고객이 어떤 장면에서 멈추고, 어떤 이유로 문의하는지 설계합니다.",
-            f"적용 방향: {application}",
-            f"비슷한 영상이 필요하다면 {cta}",
-        ],
-        "images": [
-            "강한 문제 제기를 보여주는 기업 담당자 또는 브랜드 회의 장면. 어두운 배경, 화면에는 복잡한 영상 제작 체크리스트.",
-            "영상 제작 비용과 수정 요청이 늘어나는 과정을 보여주는 인포그래픽형 이미지. 텍스트 없이 그래프와 아이콘 중심.",
-            f"벤치마크 콘텐츠의 전개 구조를 시각화한 카드형 다이어그램. 핵심 참고 요소: {visual}",
-            "EAFi 팀이 스토리보드, AI 영상 컷, 브랜드 무드보드를 한 화면에서 정리하는 고급 프로덕션 워크스테이션 장면.",
-            "비포/애프터 비교 구도. 왼쪽은 평범한 브랜드 영상, 오른쪽은 전환을 고려한 시네마틱 AI 하이브리드 영상 콘셉트.",
-            "깔끔한 CTA 마무리 컷. 포트폴리오 화면과 견적 문의 버튼이 보이는 프리미엄 웹사이트 목업.",
-        ],
+        "slides": slides,
+        "images": images,
     }
 
 
@@ -149,20 +333,43 @@ def save_plan(reference_id, plan):
     conn.close()
 
 
-def render_plan(plan):
-    st.markdown("### 핵심 설계")
-    st.write(f"**주제:** {plan['title']}")
-    st.write(f"**타깃:** {plan['target_customer']}")
-    st.write(f"**핵심 문제:** {plan['core_problem']}")
-    st.write(f"**메인 메시지:** {plan['main_message']}")
-    st.write(f"**CTA:** {plan['cta']}")
+def render_source_preview(row):
+    with st.expander("선택한 벤치마크 원본 데이터 보기", expanded=False):
+        st.write(f"**플랫폼:** {clean(row.get('platform'), '-')}")
+        st.write(f"**채널:** {clean(row.get('channel_name'), '-')}")
+        st.write(f"**제목:** {clean(row.get('title'), '-')}")
+        st.write(f"**후킹 포인트:** {clean(row.get('hook_point'), '-')}")
+        st.write(f"**전개 구조:** {clean(row.get('structure_note'), '-')}")
+        st.write(f"**이미지 참고:** {clean(row.get('visual_note'), '-')}")
+        st.write(f"**적용 아이디어:** {clean(row.get('eafi_application'), '-')}")
 
-    st.markdown("### 6장 카드뉴스 구성")
+
+def render_editable_plan(plan):
+    st.markdown("### 핵심 설계")
+    title = st.text_input("저장할 주제명", value=plan["title"], key="plan_title")
+    core_problem = st.text_area("핵심 문제", value=plan["core_problem"], height=80, key="plan_core_problem")
+    main_message = st.text_area("메인 메시지", value=plan["main_message"], height=90, key="plan_main_message")
+    cta = st.text_input("CTA", value=plan["cta"], key="plan_cta")
+
+    st.markdown("### 6장 카드뉴스 구성 직접 수정")
+    edited_slides = []
+    edited_images = []
     for idx, (copy, image) in enumerate(zip(plan["slides"], plan["images"]), start=1):
         with st.container(border=True):
             st.markdown(f"#### {idx}장")
-            st.markdown(f"**카피**  \n{copy}")
-            st.markdown(f"**이미지 방향**  \n{image}")
+            edited_copy = st.text_area("카피", value=copy, height=130, key=f"slide_copy_{idx}")
+            edited_image = st.text_area("이미지 방향", value=image, height=110, key=f"slide_image_{idx}")
+            edited_slides.append(edited_copy)
+            edited_images.append(edited_image)
+
+    edited_plan = dict(plan)
+    edited_plan["title"] = title
+    edited_plan["core_problem"] = core_problem
+    edited_plan["main_message"] = main_message
+    edited_plan["cta"] = cta
+    edited_plan["slides"] = edited_slides
+    edited_plan["images"] = edited_images
+    return edited_plan
 
 
 def main():
@@ -170,7 +377,7 @@ def main():
     init_cardnews_table()
 
     st.title("🧩 카드뉴스 설계안 생성")
-    st.caption("참고 콘텐츠 후보를 6장 카드뉴스 원본 구조로 변환합니다.")
+    st.caption("벤치마크 데이터를 고정 문구가 아니라, 선택한 콘텐츠 각도와 템플릿에 맞춰 6장 카드뉴스로 변환합니다.")
 
     refs = load_references()
     if refs.empty:
@@ -184,18 +391,80 @@ def main():
 
     selected_key = st.selectbox("카드뉴스로 만들 참고 콘텐츠", list(options.keys()))
     row = options[selected_key]
+    render_source_preview(row)
 
-    col1, col2 = st.columns(2)
+    st.markdown("---")
+    st.markdown("### 생성 조건")
+
+    col1, col2, col3 = st.columns(3)
     with col1:
-        target_customer = st.text_input("타깃 고객", value="영상 제작을 고민하는 브랜드/마케팅 담당자")
+        template_name = st.selectbox("콘텐츠 구조", TEMPLATE_OPTIONS, index=0)
     with col2:
-        cta = st.text_input("CTA", value="DM으로 포트폴리오와 견적을 받아보세요")
+        tone_level = st.selectbox("후킹 강도", list(TONE_LEVELS.keys()), index=2)
+    with col3:
+        visual_style = st.selectbox("이미지 스타일", VISUAL_STYLES, index=0)
 
-    plan = build_cardnews_plan(row, target_customer, cta)
-    render_plan(plan)
+    col4, col5 = st.columns(2)
+    with col4:
+        brand_name = st.text_input("브랜드명", value="eaf:")
+        target_customer = st.text_input("타깃 고객", value="영상 제작을 고민하는 브랜드/마케팅 담당자")
+        cta = st.text_input("CTA", value="DM으로 포트폴리오와 견적을 받아보세요")
+    with col5:
+        content_angle = st.text_area(
+            "이번 카드뉴스의 핵심 각도",
+            value=clean(row.get("eafi_application"), clean(row.get("title"), "기업 영상이 문의로 이어지지 않는 이유")),
+            height=80,
+        )
+        core_problem = st.text_area(
+            "핵심 문제",
+            value=clean(row.get("hook_point"), "결과물 퀄리티만 보고 전환 구조를 놓치는 문제"),
+            height=80,
+        )
+
+    insight = st.text_area(
+        "벤치마크에서 가져올 인사이트 / 전개 구조",
+        value=clean(row.get("structure_note"), "문제 제기 → 원인 분석 → 해결 방식 → 실행 제안"),
+        height=90,
+    )
+    solution = st.text_area(
+        "브랜드 관점의 해결 방식",
+        value=f"{brand_name}는 영상의 분위기보다 목적, 타깃, 메시지, CTA가 이어지는 전환 구조를 먼저 설계합니다",
+        height=80,
+    )
+    proof = st.text_area(
+        "근거/설명",
+        value="기획 단계에서 구조가 정리되면 후반 수정이 줄고, 메시지와 행동 유도가 일관되게 이어집니다",
+        height=80,
+    )
+    offer = st.text_area(
+        "서비스/제안 문장",
+        value="브랜드 필름, 제품 영상, 유튜브 콘텐츠까지 문의로 이어지는 구조부터 함께 설계",
+        height=70,
+    )
+
+    inputs = {
+        "template_name": template_name,
+        "tone_level": tone_level,
+        "visual_style": visual_style,
+        "brand_name": brand_name,
+        "target_customer": target_customer,
+        "cta": cta,
+        "content_angle": content_angle,
+        "core_problem": core_problem,
+        "insight": insight,
+        "solution": solution,
+        "proof": proof,
+        "offer": offer,
+    }
+
+    ctx = build_context(row, inputs)
+    plan = build_plan_by_template(ctx, template_name)
+
+    st.markdown("---")
+    edited_plan = render_editable_plan(plan)
 
     if st.button("이 설계안 저장", type="primary"):
-        save_plan(int(row["id"]), plan)
+        save_plan(int(row["id"]), edited_plan)
         st.success("카드뉴스 설계안을 저장했습니다.")
 
     st.markdown("---")
