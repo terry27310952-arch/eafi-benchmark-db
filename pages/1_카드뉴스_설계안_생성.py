@@ -344,12 +344,21 @@ def render_source_preview(row):
         st.write(f"**적용 아이디어:** {clean(row.get('eafi_application'), '-')}")
 
 
-def render_editable_plan(plan):
+def update_draft_state(plan, selector_signature, force=False):
+    previous_signature = st.session_state.get("planner_selector_signature")
+    if force or previous_signature != selector_signature or "planner_plan" not in st.session_state:
+        st.session_state["planner_selector_signature"] = selector_signature
+        st.session_state["planner_plan"] = plan
+        st.session_state["planner_plan_version"] = st.session_state.get("planner_plan_version", 0) + 1
+
+
+def render_editable_plan(plan, version):
     st.markdown("### 핵심 설계")
-    title = st.text_input("저장할 주제명", value=plan["title"], key="plan_title")
-    core_problem = st.text_area("핵심 문제", value=plan["core_problem"], height=80, key="plan_core_problem")
-    main_message = st.text_area("메인 메시지", value=plan["main_message"], height=90, key="plan_main_message")
-    cta = st.text_input("CTA", value=plan["cta"], key="plan_cta")
+    key_suffix = f"v{version}"
+    title = st.text_input("저장할 주제명", value=plan["title"], key=f"plan_title_{key_suffix}")
+    core_problem = st.text_area("핵심 문제", value=plan["core_problem"], height=80, key=f"plan_core_problem_{key_suffix}")
+    main_message = st.text_area("메인 메시지", value=plan["main_message"], height=90, key=f"plan_main_message_{key_suffix}")
+    cta = st.text_input("CTA", value=plan["cta"], key=f"plan_cta_{key_suffix}")
 
     st.markdown("### 6장 카드뉴스 구성 직접 수정")
     edited_slides = []
@@ -357,8 +366,8 @@ def render_editable_plan(plan):
     for idx, (copy, image) in enumerate(zip(plan["slides"], plan["images"]), start=1):
         with st.container(border=True):
             st.markdown(f"#### {idx}장")
-            edited_copy = st.text_area("카피", value=copy, height=130, key=f"slide_copy_{idx}")
-            edited_image = st.text_area("이미지 방향", value=image, height=110, key=f"slide_image_{idx}")
+            edited_copy = st.text_area("카피", value=copy, height=130, key=f"slide_copy_{idx}_{key_suffix}")
+            edited_image = st.text_area("이미지 방향", value=image, height=110, key=f"slide_image_{idx}_{key_suffix}")
             edited_slides.append(edited_copy)
             edited_images.append(edited_image)
 
@@ -458,10 +467,22 @@ def main():
     }
 
     ctx = build_context(row, inputs)
-    plan = build_plan_by_template(ctx, template_name)
+    generated_plan = build_plan_by_template(ctx, template_name)
+    selector_signature = f"{int(row['id'])}|{template_name}|{tone_level}|{visual_style}"
+    update_draft_state(generated_plan, selector_signature)
+
+    col_refresh, col_note = st.columns([1, 3])
+    with col_refresh:
+        if st.button("현재 입력값으로 초안 다시 생성", type="secondary"):
+            update_draft_state(generated_plan, selector_signature, force=True)
+            st.rerun()
+    with col_note:
+        st.info("콘텐츠 구조, 후킹 강도, 이미지 스타일을 바꾸면 아래 초안이 자동으로 갱신됩니다. 핵심 각도/문제/근거를 수정한 뒤에는 왼쪽 버튼으로 다시 생성하세요.")
 
     st.markdown("---")
-    edited_plan = render_editable_plan(plan)
+    draft_plan = st.session_state.get("planner_plan", generated_plan)
+    version = st.session_state.get("planner_plan_version", 0)
+    edited_plan = render_editable_plan(draft_plan, version)
 
     if st.button("이 설계안 저장", type="primary"):
         save_plan(int(row["id"]), edited_plan)
