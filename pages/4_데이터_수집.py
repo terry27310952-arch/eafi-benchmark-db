@@ -1,7 +1,7 @@
+import re
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
 import xml.etree.ElementTree as ET
 
 import pandas as pd
@@ -9,6 +9,10 @@ import requests
 import streamlit as st
 
 DB_PATH = Path("eafi_benchmark.db")
+YOUTUBE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+}
 
 
 def connect_db():
@@ -75,16 +79,72 @@ def load_collected_items():
     return df
 
 
-def extract_youtube_channel_id(url):
-    url = url.strip()
-    if "channel/" in url:
-        return url.split("channel/")[-1].split("/")[0].split("?")[0]
+def normalize_youtube_input(value):
+    raw = value.strip()
+    if not raw:
+        return ""
+    if raw.startswith("@"):
+        return f"https://www.youtube.com/{raw}"
+    if raw.startswith("UC") and len(raw) >= 20:
+        return raw
+    if raw.startswith("www.youtube.com") or raw.startswith("youtube.com"):
+        return f"https://{raw}"
+    return raw
+
+
+def extract_channel_id_from_text(text):
+    patterns = [
+        r'"channelId":"(UC[a-zA-Z0-9_-]{20,})"',
+        r'"externalId":"(UC[a-zA-Z0-9_-]{20,})"',
+        r'"browseId":"(UC[a-zA-Z0-9_-]{20,})"',
+        r'<meta itemprop="channelId" content="(UC[a-zA-Z0-9_-]{20,})"',
+        r'https://www\.youtube\.com/channel/(UC[a-zA-Z0-9_-]{20,})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
     return None
+
+
+def resolve_youtube_channel_id(value):
+    raw = normalize_youtube_input(value)
+    if not raw:
+        raise ValueError("YouTube URL 또는 채널 ID를 입력하세요.")
+
+    if raw.startswith("UC") and len(raw) >= 20:
+        return raw, "channel_id 직접 입력"
+
+    if "channel/" in raw:
+        channel_id = raw.split("channel/")[-1].split("/")[0].split("?")[0]
+        if channel_id.startswith("UC"):
+            return channel_id, "/channel/ URL에서 추출"
+
+    if "/@" in raw or raw.startswith("@"):
+        if raw.startswith("@"):
+            raw = f"https://www.youtube.com/{raw}"
+        target_url = raw.split("?")[0].rstrip("/")
+    elif "/c/" in raw or "/user/" in raw:
+        target_url = raw.split("?")[0].rstrip("/")
+    else:
+        target_url = raw.split("?")[0].rstrip("/")
+
+    response = requests.get(target_url, headers=YOUTUBE_HEADERS, timeout=20)
+    response.raise_for_status()
+    channel_id = extract_channel_id_from_text(response.text)
+    if channel_id:
+        return channel_id, f"페이지 HTML에서 자동 추출: {target_url}"
+
+    rss_link_match = re.search(r'https://www\.youtube\.com/feeds/videos\.xml\?channel_id=(UC[a-zA-Z0-9_-]{20,})', response.text)
+    if rss_link_match:
+        return rss_link_match.group(1), f"RSS 링크에서 자동 추출: {target_url}"
+
+    raise ValueError("channel_id를 자동으로 찾지 못했습니다. /channel/UC... URL 또는 UC... 채널 ID를 넣어주세요.")
 
 
 def fetch_youtube_rss(channel_id):
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    response = requests.get(rss_url, timeout=15)
+    response = requests.get(rss_url, headers=YOUTUBE_HEADERS, timeout=15)
     response.raise_for_status()
     root = ET.fromstring(response.text)
     ns = {
@@ -114,7 +174,7 @@ def fetch_youtube_rss(channel_id):
 
 
 def fetch_generic_rss(rss_url):
-    response = requests.get(rss_url, timeout=15)
+    response = requests.get(rss_url, headers=YOUTUBE_HEADERS, timeout=15)
     response.raise_for_status()
     root = ET.fromstring(response.text)
 
@@ -232,20 +292,36 @@ def main():
 
     with tab1:
         st.subheader("YouTube 채널 RSS 수집")
-        st.write("YouTube Data API 키 없이도 channel_id 기반 RSS로 최신 영상 제목과 링크를 수집합니다.")
-        channel_url_or_id = st.text_input("YouTube channel_id 또는 /channel/ URL", placeholder="UC... 또는 https://www.youtube.com/channel/UC...")
+        st.write("YouTube Data API 키 없이도 채널 URL, @handle, channel_id로 최신 영상 제목과 링크를 수집합니다.")
+        channel_url_or_id = st.text_input(
+            "YouTube 채널 URL / @handle / channel_id",
+            placeholder="@mkbhd 또는 https://www.youtube.com/@mkbhd 또는 UC...",
+        )
         limit = st.slider("가져올 개수", 1, 20, 10)
-        if st.button("YouTube RSS 수집"):
-            channel_id = extract_youtube_channel_id(channel_url_or_id) or channel_url_or_id.strip()
-            try:
-                source_name, items = fetch_youtube_rss(channel_id)
-                for item in items[:limit]:
-                    save_collected_item(**item)
-                st.success(f"{source_name}에서 {min(len(items), limit)}개를 수집했습니다.")
-                st.dataframe(pd.DataFrame(items[:limit]), use_container_width=True, hide_index=True)
-            except Exception as e:
-                st.error(f"수집 실패: {e}")
-                st.info("@handle URL은 RSS만으로 바로 인식되지 않을 수 있습니다. /channel/UC... 형태의 URL 또는 channel_id를 넣어주세요.")
+
+        col_resolve, col_collect = st.columns(2)
+        with col_resolve:
+            if st.button("channel_id만 확인"):
+                try:
+                    channel_id, method = resolve_youtube_channel_id(channel_url_or_id)
+                    st.success(f"channel_id: {channel_id}")
+                    st.caption(method)
+                except Exception as e:
+                    st.error(f"확인 실패: {e}")
+
+        with col_collect:
+            if st.button("YouTube RSS 수집"):
+                try:
+                    channel_id, method = resolve_youtube_channel_id(channel_url_or_id)
+                    source_name, items = fetch_youtube_rss(channel_id)
+                    for item in items[:limit]:
+                        save_collected_item(**item)
+                    st.success(f"{source_name}에서 {min(len(items), limit)}개를 수집했습니다.")
+                    st.caption(f"{method} · channel_id: {channel_id}")
+                    st.dataframe(pd.DataFrame(items[:limit]), use_container_width=True, hide_index=True)
+                except Exception as e:
+                    st.error(f"수집 실패: {e}")
+                    st.info("자동 추출이 막히면 /channel/UC... 형태의 URL 또는 UC... 채널 ID를 넣어주세요.")
 
     with tab2:
         st.subheader("일반 RSS 수집")
