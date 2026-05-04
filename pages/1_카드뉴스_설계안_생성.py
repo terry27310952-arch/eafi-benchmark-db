@@ -120,6 +120,91 @@ def shorten(text, max_len=80):
     return text[: max_len - 1].rstrip() + "…"
 
 
+def compact_lines(text):
+    lines = [line.strip() for line in clean(text).splitlines()]
+    return "\n".join([line for line in lines if line])
+
+
+def normalize_korean_copy(text):
+    text = compact_lines(text)
+    replacements = {
+        "진짜 병목을 놓칩니다": "정작 중요한 지점을 놓치기 쉽습니다",
+        "핵심 문제는 ": "문제의 핵심은 ",
+        "비슷한 구조의 콘텐츠가 필요하다면": "이런 구조의 콘텐츠가 필요하다면",
+        "필요하다면 DM": "필요하다면\nDM",
+        "많은 사람이 편집 퀄리티만 고칩니다": "많은 분들이 편집 퀄리티부터 손봅니다",
+        "고객이 납득하고 움직이는 흐름": "고객이 이해하고 움직이는 흐름",
+        "고객의 판단 순서": "고객이 판단하는 순서",
+        "결과물의 분위기보다 전환 구조를 먼저 설계한다": "결과물의 분위기보다 전환 구조를 먼저 설계합니다",
+        "핵심 인사이트:": "핵심은",
+        "를 위해": "에게 필요한",
+        "가 결과물만": "는 결과물만",
+        "담당자가 결과물만": "담당자는 결과물만",
+        "담당자가는": "담당자는",
+        "고객 행동까지 설계된 영상": "고객의 다음 행동까지 설계된 영상",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # 너무 개발자스러운 접속어 정리
+    text = text.replace("입니다\n입니다", "입니다")
+    text = text.replace("합니다\n합니다", "합니다")
+    text = text.replace("\n\n\n", "\n\n")
+    return text.strip()
+
+
+def split_target_label(target):
+    target = clean(target, "브랜드/마케팅 담당자")
+    for token in ["영상 제작을 고민하는 ", "영상을 고민하는 ", "콘텐츠 제작을 고민하는 "]:
+        target = target.replace(token, "")
+    return target.strip() or "브랜드/마케팅 담당자"
+
+
+def review_slide_copy(slide, tone_level):
+    slide = normalize_korean_copy(slide)
+    lines = slide.splitlines()
+
+    # 카드뉴스 문장은 너무 긴 한 줄보다 짧은 호흡이 좋다.
+    refined = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if len(line) > 42 and " " in line:
+            # 마침표 없는 긴 설명문을 부드럽게 2줄로 분리
+            chunks = line.split(" ")
+            mid = max(1, len(chunks) // 2)
+            left = " ".join(chunks[:mid]).strip()
+            right = " ".join(chunks[mid:]).strip()
+            if len(left) >= 10 and len(right) >= 10:
+                refined.extend([left, right])
+            else:
+                refined.append(line)
+        else:
+            refined.append(line)
+
+    text = "\n".join(refined)
+
+    if tone_level == "자극적":
+        text = text.replace("놓치기 쉽습니다", "계속 놓치게 됩니다")
+        text = text.replace("중요합니다", "여기서 갈립니다")
+    elif tone_level == "담백":
+        text = text.replace("진짜", "")
+        text = text.replace("계속 새는 지점입니다", "확인해야 할 지점입니다")
+
+    return compact_lines(text)
+
+
+def review_plan_copy(plan, ctx):
+    reviewed = dict(plan)
+    reviewed["title"] = normalize_korean_copy(reviewed["title"])
+    reviewed["core_problem"] = normalize_korean_copy(reviewed["core_problem"])
+    reviewed["main_message"] = normalize_korean_copy(reviewed["main_message"])
+    reviewed["cta"] = normalize_korean_copy(reviewed["cta"])
+    reviewed["slides"] = [review_slide_copy(slide, ctx["tone_level"]) for slide in reviewed["slides"]]
+    return reviewed
+
+
 def build_context(row, inputs):
     source_title = clean(row.get("title"), "벤치마크 콘텐츠")
     hook_point = clean(row.get("hook_point"), source_title)
@@ -151,6 +236,7 @@ def build_context(row, inputs):
         "proof": proof,
         "offer": offer,
         "target_customer": inputs["target_customer"],
+        "target_label": split_target_label(inputs["target_customer"]),
         "cta": inputs["cta"],
         "brand_name": inputs["brand_name"],
         "visual_style": inputs["visual_style"],
@@ -160,13 +246,11 @@ def build_context(row, inputs):
 
 def hookify(text, tone_level):
     text = clean(text)
-    if tone_level == "담백":
-        return text
-    if tone_level == "명확":
+    if tone_level in ["담백", "명확"]:
         return text
     if tone_level == "강한 후킹":
-        return text if any(word in text for word in ["왜", "이유", "문제", "진짜"]) else f"{text}\n진짜 문제는 따로 있습니다"
-    return text if any(word in text for word in ["왜", "망", "큰일", "문제", "진짜"]) else f"{text}\n그냥 넘기면 계속 새는 지점입니다"
+        return text if any(word in text for word in ["왜", "이유", "문제", "진짜"]) else f"{text}\n문제는 다른 데 있습니다"
+    return text if any(word in text for word in ["왜", "망", "큰일", "문제", "진짜"]) else f"{text}\n이걸 놓치면 계속 새게 됩니다"
 
 
 def build_image_direction(ctx, slide_no, role):
@@ -209,70 +293,69 @@ def build_plan_by_template(ctx, template_name):
     proof = ctx["proof"]
     offer = ctx["offer"]
     cta = ctx["cta"]
-    target = ctx["target_customer"]
+    target_label = ctx["target_label"]
     source_title = ctx["source_title"]
     tone_level = ctx["tone_level"]
 
     if template_name == "문제폭로형":
         slides = [
             hookify(f"{angle}\n문제는 겉으로 보이는 곳에 있지 않습니다", tone_level),
-            f"많은 {target}가 결과물만 보다가\n진짜 병목을 놓칩니다\n핵심 문제는 {shorten(problem, 55)}입니다",
+            f"{target_label}가 영상 결과물만 먼저 보면\n정작 중요한 구조를 놓치기 쉽습니다\n문제의 핵심은 {shorten(problem, 55)}입니다",
             f"대부분 여기서부터 꼬입니다\n{shorten(insight, 95)}",
-            f"그래서 먼저 봐야 할 건\n무엇을 만들지가 아니라\n왜 만들고, 누구를 움직일지입니다",
-            f"{brand}는 이렇게 봅니다\n{shorten(solution, 95)}",
+            "먼저 봐야 할 건\n무엇을 만들지가 아닙니다\n왜 만들고, 누구를 움직일지입니다",
+            f"{brand}는 이렇게 설계합니다\n{shorten(solution, 95)}",
             f"멋진 결과물보다\n전환되는 구조가 필요하다면\n{cta}",
         ]
         roles = ["hook", "problem", "analysis", "compare", "solution", "cta"]
 
     elif template_name == "오해반박형":
-        wrong_belief = "편집 퀄리티"
         slides = [
-            hookify(f"이건 {wrong_belief} 문제가 아닙니다", tone_level),
-            f"많은 사람이 {wrong_belief}만 고칩니다\n그런데 문의가 안 늘면\n문제는 다른 곳에 있습니다",
+            hookify("이건 편집 퀄리티 문제가 아닙니다", tone_level),
+            "많은 분들이 편집 퀄리티부터 손봅니다\n그런데 문의가 늘지 않는다면\n문제는 다른 곳에 있을 수 있습니다",
             f"놓친 건 이것입니다\n{shorten(problem, 85)}",
-            f"영상은 예쁘게 보이는 순간보다\n고객이 납득하고 움직이는 흐름이 더 중요합니다",
+            "영상은 예쁘게 보이는 순간보다\n고객이 이해하고 움직이는 흐름이 더 중요합니다",
             f"{brand}는 분위기보다 구조를 먼저 잡습니다\n{shorten(solution, 85)}",
-            f"{offer}\n필요하다면 {cta}",
+            f"{offer}\n필요하다면\n{cta}",
         ]
         roles = ["hook", "problem", "analysis", "compare", "solution", "cta"]
 
     elif template_name == "전후비교형":
         slides = [
-            hookify(f"같은 영상도\n결과가 갈리는 이유", tone_level),
+            hookify("같은 영상도\n결과가 갈리는 이유", tone_level),
             f"기획 없이 만들면\n수정은 늘고 메시지는 흐려집니다\n{shorten(problem, 65)}",
-            f"구조를 잡고 만들면\n목적, 타깃, 메시지, CTA가 한 방향으로 움직입니다",
-            f"Before\n예쁜데 문의가 없는 영상\nAfter\n고객 행동까지 설계된 영상",
-            f"{brand}는 제작 전에 이 흐름을 먼저 설계합니다\n{shorten(insight, 80)}",
+            "구조를 잡고 만들면\n목적, 타깃, 메시지, CTA가\n한 방향으로 이어집니다",
+            "Before\n예쁜데 문의가 없는 영상\nAfter\n고객의 다음 행동까지 설계된 영상",
+            f"{brand}는 제작 전에\n이 흐름을 먼저 설계합니다\n{shorten(insight, 80)}",
             f"{offer}\n{cta}",
         ]
         roles = ["hook", "problem", "analysis", "compare", "solution", "cta"]
 
     elif template_name == "체크리스트형":
         slides = [
-            hookify(f"영상 만들기 전\n이 4개는 먼저 정리하세요", tone_level),
-            "1. 목적\n이 영상이 인지도, 신뢰, 문의 중 무엇을 만들 것인지 정해야 합니다",
-            "2. 타깃\n누구에게 말하는 영상인지 흐리면 메시지도 흐려집니다",
-            "3. 메시지\n고객이 기억해야 할 한 문장이 먼저 필요합니다",
-            "4. CTA\n본 뒤에 무엇을 해야 하는지까지 설계해야 전환이 생깁니다",
+            hookify("영상 만들기 전\n이 4개는 먼저 정리하세요", tone_level),
+            "1. 목적\n이 영상이 인지도, 신뢰, 문의 중\n무엇을 만들지 정해야 합니다",
+            "2. 타깃\n누구에게 말하는 영상인지 흐리면\n메시지도 같이 흐려집니다",
+            "3. 메시지\n고객이 기억해야 할 한 문장이\n먼저 필요합니다",
+            "4. CTA\n영상을 본 뒤 무엇을 해야 하는지까지\n설계해야 전환이 생깁니다",
             f"이 4개가 정리되지 않았다면\n{brand}와 구조부터 잡아보세요\n{cta}",
         ]
         roles = ["hook", "checklist", "checklist", "checklist", "checklist", "cta"]
 
     elif template_name == "케이스분석형":
         slides = [
-            hookify(f"{shorten(source_title, 30)}\n우리가 봐야 할 건 조회수가 아닙니다", tone_level),
-            f"이 레퍼런스에서 봐야 할 건\n겉모습보다 전개 구조입니다\n출처: {ctx['platform']} · {ctx['channel_name']}",
+            hookify(f"{shorten(source_title, 30)}\n우리가 봐야 할 건 조회수만이 아닙니다", tone_level),
+            f"이 레퍼런스에서 볼 건\n겉모습보다 전개 구조입니다\n출처: {ctx['platform']} · {ctx['channel_name']}",
             f"핵심 구조\n{shorten(insight, 105)}",
-            f"이걸 {target} 관점으로 바꾸면\n{shorten(angle, 65)}라는 주제가 됩니다",
+            f"이걸 {target_label} 관점으로 바꾸면\n{shorten(angle, 65)}라는 주제가 됩니다",
             f"{brand} 적용 방식\n{shorten(solution, 95)}",
-            f"비슷한 구조의 콘텐츠가 필요하다면\n{cta}",
+            f"이런 구조의 콘텐츠가 필요하다면\n{cta}",
         ]
         roles = ["case", "analysis", "analysis", "compare", "solution", "cta"]
 
     else:  # 교육노하우형
         slides = [
             hookify(f"{angle}\n이 원리만 알면 훨씬 선명해집니다", tone_level),
-            f"영상은 장면의 나열이 아니라\n고객의 판단 순서를 설계하는 일입니다",
+            "영상은 장면을 나열하는 일이 아닙니다\n고객이 판단하는 순서를 설계하는 일입니다",
             f"첫 번째는 문제 인식\n{shorten(problem, 80)}",
             f"두 번째는 납득 구조\n{shorten(proof, 80)}",
             f"세 번째는 행동 유도\n{shorten(solution, 80)}",
@@ -282,11 +365,11 @@ def build_plan_by_template(ctx, template_name):
 
     images = [build_image_direction(ctx, idx + 1, role) for idx, role in enumerate(roles)]
     title = f"[{template_name}] {shorten(angle, 45)}"
-    main_message = f"{brand}는 {target}를 위해 결과물의 분위기보다 전환 구조를 먼저 설계한다. 핵심 인사이트: {shorten(insight, 100)}"
+    main_message = f"{brand}는 {target_label}에게 필요한 전환 구조를 먼저 설계합니다. 핵심은 {shorten(insight, 100)}"
 
     return {
         "title": title,
-        "target_customer": target,
+        "target_customer": ctx["target_customer"],
         "core_problem": problem,
         "main_message": main_message,
         "cta": cta,
@@ -405,20 +488,22 @@ def main():
     st.markdown("---")
     st.markdown("### 생성 조건")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         template_name = st.selectbox("콘텐츠 구조", TEMPLATE_OPTIONS, index=0)
     with col2:
         tone_level = st.selectbox("후킹 강도", list(TONE_LEVELS.keys()), index=2)
     with col3:
         visual_style = st.selectbox("이미지 스타일", VISUAL_STYLES, index=0)
-
-    col4, col5 = st.columns(2)
     with col4:
+        auto_review = st.checkbox("한국어 카피 자동 검수", value=True)
+
+    col5, col6 = st.columns(2)
+    with col5:
         brand_name = st.text_input("브랜드명", value="eaf:")
         target_customer = st.text_input("타깃 고객", value="영상 제작을 고민하는 브랜드/마케팅 담당자")
         cta = st.text_input("CTA", value="DM으로 포트폴리오와 견적을 받아보세요")
-    with col5:
+    with col6:
         content_angle = st.text_area(
             "이번 카드뉴스의 핵심 각도",
             value=clean(row.get("eafi_application"), clean(row.get("title"), "기업 영상이 문의로 이어지지 않는 이유")),
@@ -468,7 +553,10 @@ def main():
 
     ctx = build_context(row, inputs)
     generated_plan = build_plan_by_template(ctx, template_name)
-    selector_signature = f"{int(row['id'])}|{template_name}|{tone_level}|{visual_style}"
+    if auto_review:
+        generated_plan = review_plan_copy(generated_plan, ctx)
+
+    selector_signature = f"{int(row['id'])}|{template_name}|{tone_level}|{visual_style}|{auto_review}"
     update_draft_state(generated_plan, selector_signature)
 
     col_refresh, col_note = st.columns([1, 3])
@@ -477,7 +565,7 @@ def main():
             update_draft_state(generated_plan, selector_signature, force=True)
             st.rerun()
     with col_note:
-        st.info("콘텐츠 구조, 후킹 강도, 이미지 스타일을 바꾸면 아래 초안이 자동으로 갱신됩니다. 핵심 각도/문제/근거를 수정한 뒤에는 왼쪽 버튼으로 다시 생성하세요.")
+        st.info("드롭다운을 바꾸면 아래 초안이 자동 갱신됩니다. 핵심 각도/문제/근거를 수정한 뒤에는 왼쪽 버튼으로 다시 생성하세요. 자동 검수는 어색한 조사, 개발자식 문장, 과하게 딱딱한 표현을 한 번 더 정리합니다.")
 
     st.markdown("---")
     draft_plan = st.session_state.get("planner_plan", generated_plan)
