@@ -9,9 +9,9 @@ import streamlit as st
 
 DB_PATH = Path("eafi_benchmark.db")
 
-TEMPLATE_OPTIONS = ["문제 제기형", "체크리스트형", "전후 비교형", "교육형", "트렌드 분석형"]
+TEMPLATE_OPTIONS = ["자동 최적화", "문제 제기형", "체크리스트형", "전후 비교형", "교육형", "트렌드 분석형"]
 TONE_LEVELS = ["담백", "명확", "강한 후킹", "자극적"]
-TOPIC_TYPES = ["자동 감지", "시장/투자", "트렌드/이슈", "브랜드/마케팅", "라이프스타일", "교육/노하우", "직접 입력"]
+TOPIC_TYPES = ["자동 감지", "사건/논쟁", "시장/투자", "트렌드/이슈", "브랜드/마케팅", "라이프스타일", "교육/노하우", "기술/AI", "직접 입력"]
 CONTENT_GOALS = ["원본 내용 깊이 분석", "카드뉴스 원천 데이터화", "바이럴 후킹 추출", "교육형 요약", "이슈/트렌드 재가공"]
 PLATFORM_FOCUS = ["인스타 카드뉴스", "유튜브 커뮤니티", "블로그", "쓰레드", "틱톡/숏폼", "범용"]
 ANALYSIS_DEPTH = ["핵심만", "구조 분석", "세부 근거까지", "전환 관점", "후킹/바이럴 관점"]
@@ -31,8 +31,8 @@ IMAGE_STYLES = [
 
 CTA_PRESETS = {
     "저장 유도": "이 기준은 저장해두고 다시 확인해보세요",
-    "댓글 유도": "여러분은 이 흐름을 어떻게 보고 계신가요? 댓글로 남겨주세요",
-    "공유 유도": "이 주제가 필요한 분에게 공유해보세요",
+    "댓글 유도": "여러분은 이 이야기를 어떻게 보시나요? 댓글로 남겨주세요",
+    "공유 유도": "이 이야기가 필요한 분에게 공유해보세요",
     "팔로우 유도": "비슷한 분석을 계속 보고 싶다면 팔로우해두세요",
     "DM 문의": "이런 카드뉴스 제작이 필요하다면 DM으로 문의해주세요",
     "직접 입력": "",
@@ -40,6 +40,7 @@ CTA_PRESETS = {
 
 ANGLE_PRESETS = {
     "자동 생성": "__AUTO__",
+    "사건의 뒷면": "겉으로 알려진 결과 뒤에 숨은 갈등을 보여주는 카드뉴스",
     "문제폭로형": "사람들이 놓치고 있는 문제를 먼저 드러내는 카드뉴스",
     "오해반박형": "흔히 믿는 착각을 반박하는 카드뉴스",
     "체크리스트형": "보기 전에 반드시 확인해야 할 기준을 정리하는 카드뉴스",
@@ -50,6 +51,7 @@ ANGLE_PRESETS = {
 
 PROBLEM_PRESETS = {
     "자동 추출": "__AUTO__",
+    "숨은 갈등": "겉으로 보이는 결과만 보고 그 뒤에 있는 갈등과 이해관계를 놓치는 상태",
     "목적 불명확": "콘텐츠의 목적이 인지도, 신뢰, 문의 중 어디에 있는지 정리되지 않은 상태",
     "타깃 불명확": "누구에게 말하는 콘텐츠인지 흐려져 메시지와 장면 선택이 모두 애매해진 상태",
     "전환 경로 부재": "콘텐츠를 본 뒤 시청자가 무엇을 해야 하는지 명확하지 않은 상태",
@@ -60,20 +62,20 @@ PROBLEM_PRESETS = {
 }
 
 TARGET_PRESETS = {
+    "일반 시청자": "해당 주제에 관심 있는 일반 시청자",
     "브랜드/마케팅 담당자": "영상 제작을 검토 중인 브랜드/마케팅 담당자",
     "스타트업 대표/팀장": "브랜드 신뢰도를 빠르게 쌓아야 하는 스타트업 대표/팀장",
     "제품 브랜드 담당자": "제품의 장점을 콘텐츠로 설득해야 하는 브랜드 담당자",
     "콘텐츠 제작자": "유튜브와 숏폼을 꾸준히 운영해야 하는 콘텐츠 제작자",
-    "일반 시청자": "해당 주제에 관심 있는 일반 시청자",
     "투자/시장 관심층": "시장 흐름과 이슈를 빠르게 파악하려는 사람",
     "직접 입력": "",
 }
 
 VISUAL_STYLES = {
     "깔끔한 인포그래픽": "clean editorial infographic, organized icons, clear hierarchy, generous whitespace",
-    "실사 시네마틱": "cinematic realistic photography, premium lighting, shallow depth of field, natural objects",
+    "실사 시네마틱": "cinematic realistic photography, premium lighting, natural texture, documentary mood",
     "3D 애니메이션": "stylized 3D animation, soft lighting, polished commercial render, expressive composition",
-    "2D 일러스트": "modern flat 2D illustration, clean shapes, balanced composition, editorial feel",
+    "2D 일러스트": "modern flat 2D illustration, clean shapes, balanced editorial composition",
     "웹툰/만화형": "Korean webtoon inspired illustration, dynamic panels, expressive characters, clean linework",
     "미니멀 타이포그래피": "minimal typography poster style, strong layout, negative space, bold graphic rhythm",
     "뉴스 에디토리얼": "news editorial visual, headline layout, data panels, reportage mood",
@@ -88,6 +90,24 @@ RATIO_PROMPTS = {
     "9:16": "vertical 9:16 mobile story composition",
     "4:3": "classic 4:3 editorial composition",
 }
+
+BAD_TOPIC_FRAGMENTS = [
+    "원본 해석 데이터",
+    "원본 주제 카드뉴스",
+    "카드뉴스 메뉴",
+    "직접 입력한 영상 스크립트",
+    "youtube 영상",
+    "untitled",
+    "manual input",
+]
+
+TEMPLATE_LEAKS = [
+    "관심이 커지는 흐름을 다룹니다",
+    "지금 봐야 할 건 따로 있습니다",
+    "카드뉴스",
+    "원본 해석 데이터를 바탕으로",
+    "해당 주제에 관심 있는 일반 시청자 기준으로 보면",
+]
 
 
 def connect_db():
@@ -128,9 +148,145 @@ def init_table():
     conn.close()
 
 
+def clean(value, fallback=""):
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    if text.lower() in ["nan", "none", "null"]:
+        return fallback
+    return text or fallback
+
+
+def strip_meta(text):
+    text = clean(text)
+    text = re.sub(r"(?im)^\s*(title|url|source|link|영상 제목|제목)\s*[:：]\s*", "", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"\[[sS]?\d+\]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def strip_citations(text):
+    return re.sub(r"\s*\[[sS]?\d+\]", "", clean(text)).strip()
+
+
+def shorten(text, max_len=90):
+    text = strip_meta(text)
+    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
+
+
+def compact_lines(text):
+    return "\n".join([line.strip() for line in clean(text).splitlines() if line.strip()])
+
+
+def safe_json(value, fallback=None):
+    if fallback is None:
+        fallback = []
+    if value is None:
+        return fallback
+    if isinstance(value, (list, dict)):
+        return value
+    text = clean(value)
+    if not text:
+        return fallback
+    try:
+        return json.loads(text)
+    except Exception:
+        return fallback
+
+
+def get_value(row, key, default=""):
+    try:
+        value = row.get(key, default)
+    except Exception:
+        try:
+            value = row[key]
+        except Exception:
+            value = default
+    return clean(value, default)
+
+
+def topic_is_bad(topic):
+    t = clean(topic).lower()
+    if not t:
+        return True
+    if any(fragment.lower() in t for fragment in BAD_TOPIC_FRAGMENTS):
+        return True
+    if t.count(",") >= 4 and "사건" not in t and "갈등" not in t:
+        return True
+    if len(t) < 4:
+        return True
+    return False
+
+
+def extract_embedded_title(*texts):
+    for text in texts:
+        raw = clean(text)
+        match = re.search(r"Title\s*[:：]\s*[\"“']?(.{8,120}?)[\"”']?(?:\n|$)", raw, flags=re.I)
+        if match:
+            title = strip_meta(match.group(1))
+            if title:
+                return title
+    return ""
+
+
+def remove_template_leaks(text):
+    text = clean(text)
+    for leak in TEMPLATE_LEAKS:
+        text = text.replace(leak, "")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def polish(text, tone="명확"):
+    text = compact_lines(text)
+    replacements = {
+        "핵심 문제": "문제의 핵심",
+        "진짜": "정말",
+        "없으면": "없다면",
+        "합니다입니다": "합니다",
+        "쉽습니다입니다": "쉽습니다",
+        "중요합니다입니다": "중요합니다",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = remove_template_leaks(text)
+    if tone == "담백":
+        text = text.replace("놓치면 안 됩니다", "확인해볼 필요가 있습니다")
+    elif tone == "자극적":
+        text = text.replace("봐야 합니다", "놓치면 안 됩니다")
+        text = text.replace("확인해야 합니다", "반드시 확인해야 합니다")
+    return text.strip()
+
+
+def select_from_dict_like(label, options, key, default=None, height=80):
+    labels = list(options.keys())
+    index = labels.index(default) if default in labels else 0
+    selected = st.selectbox(label, labels, index=index, key=f"{key}_select")
+    if selected == "직접 입력":
+        return st.text_area(f"{label} 직접 입력", height=height, key=f"{key}_custom"), selected
+    return options[selected], selected
+
+
+def detect_topic_type(text):
+    t = clean(text).lower()
+    if any(w in t for w in ["노조", "회사", "직원", "시민", "공장", "사건", "갈등", "반발", "요구", "법정", "기증", "주차장"]):
+        return "사건/논쟁"
+    if any(w in t for w in ["2차전지", "배터리", "전기차", "코인", "비트코인", "주식", "시장", "투자", "가격", "섹터"]):
+        return "시장/투자"
+    if any(w in t for w in ["브랜드", "마케팅", "광고", "콘텐츠", "유튜브", "영상", "제작"]):
+        return "브랜드/마케팅"
+    if any(w in t for w in ["방법", "노하우", "강의", "배우", "체크리스트"]):
+        return "교육/노하우"
+    if any(w in t for w in ["ai", "인공지능", "기술", "개발", "앱", "툴"]):
+        return "기술/AI"
+    return "트렌드/이슈"
+
+
 def load_references():
     conn = connect_db()
     dfs = []
+
     try:
         refs = pd.read_sql_query("""
             SELECT r.id, 'content_reference' AS source_table, c.platform, c.channel_name, c.category, r.title, r.url,
@@ -145,22 +301,30 @@ def load_references():
         pass
 
     try:
-        yt = pd.read_sql_query("""
-            SELECT id, 'youtube_analysis' AS source_table, 'YouTube' AS platform, channel_name, '영상 분석' AS category,
-                   title, url, hook_point, structure_note, visual_note, eafi_application,
-                   20 AS total_score, '영상 분석' AS status, created_at,
-                   summary, keywords, transcript
-            FROM youtube_video_analyses
-            ORDER BY id DESC
-        """, conn)
-        dfs.append(yt)
+        yt = pd.read_sql_query("SELECT * FROM youtube_video_analyses ORDER BY id DESC", conn)
+        if not yt.empty:
+            yt["source_table"] = "youtube_analysis"
+            yt["platform"] = "YouTube"
+            yt["category"] = yt.get("source_kind", "영상 분석")
+            yt["total_score"] = 20
+            yt["status"] = "원본 해석"
+            dfs.append(yt)
     except Exception:
         pass
+
     conn.close()
 
     if not dfs:
         return pd.DataFrame()
     df = pd.concat(dfs, ignore_index=True, sort=False)
+    for col in [
+        "source_kind", "original_topic", "primary_claim", "actor_map", "event_timeline", "cardnews_seed",
+        "contradiction_or_tension", "hidden_assumption", "emotional_trigger", "viral_hook_logic",
+        "reusable_structure", "source_grounded_qa", "evidence_points", "cause_effect_chain", "audience_pain",
+        "keywords", "summary", "transcript", "interpretation_report"
+    ]:
+        if col not in df.columns:
+            df[col] = ""
     return df.sort_values("created_at", ascending=False, na_position="last")
 
 
@@ -171,254 +335,344 @@ def load_plans():
     return df
 
 
-def clean(value, fallback=""):
-    if value is None:
-        return fallback
-    text = str(value).strip()
-    if text.lower() in ["nan", "none", "null"]:
-        return fallback
-    return text or fallback
+def resolve_topic(row, seed):
+    title = get_value(row, "title")
+    summary = get_value(row, "summary")
+    transcript = get_value(row, "transcript")
+    original_topic = get_value(row, "original_topic")
+    embedded_title = extract_embedded_title(summary, transcript)
+
+    candidates = []
+    if original_topic:
+        candidates.append(original_topic)
+    if embedded_title:
+        candidates.append(embedded_title)
+    if title and not topic_is_bad(title):
+        candidates.append(title)
+
+    if isinstance(seed, dict):
+        angles = seed.get("angle_candidates") or []
+        for angle in angles:
+            if angle:
+                cleaned = re.sub(r"(뒤에 숨은.*|에서 사람들이.*|을 보기 전에.*|이 반응을.*)", "", strip_citations(angle)).strip()
+                if cleaned:
+                    candidates.append(cleaned)
+
+    keywords = get_value(row, "keywords")
+    if keywords:
+        keys = [k.strip() for k in keywords.split(",") if len(k.strip()) > 1]
+        if keys:
+            candidates.append(f"{', '.join(keys[:3])}을 둘러싼 이야기")
+
+    for candidate in candidates:
+        candidate = strip_citations(candidate)
+        if not topic_is_bad(candidate):
+            return shorten(candidate, 80)
+    return "원본에 숨은 이야기"
 
 
-def strip_raw_labels(text):
-    text = clean(text)
-    text = re.sub(r"(?im)^\s*(title|url|source|link|영상 제목|제목)\s*[:：]\s*", "", text)
-    text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"www\.\S+", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+def flatten_event_text(item):
+    if isinstance(item, dict):
+        return strip_citations(item.get("event") or item.get("source") or item.get("text") or "")
+    return strip_citations(item)
 
 
-def compact_lines(text):
-    return "\n".join([line.strip() for line in clean(text).splitlines() if line.strip()])
-
-
-def shorten(text, max_len=90):
-    text = strip_raw_labels(text)
-    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
-
-
-def polish(text, tone="명확"):
-    text = compact_lines(strip_raw_labels(text))
-    replacements = {
-        "핵심 문제": "문제의 핵심",
-        "진짜": "정말",
-        "결과는 생각보다 조용합니다": "반응은 조용할 수 있습니다",
-        "없으면": "없다면",
-        "합니다입니다": "합니다",
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    if tone == "담백":
-        text = text.replace("큰일납니다", "주의가 필요합니다")
-        text = text.replace("놓치면 안 됩니다", "확인해볼 필요가 있습니다")
-    elif tone == "자극적":
-        text = text.replace("봐야 합니다", "놓치면 안 됩니다")
-        text = text.replace("확인해야 합니다", "반드시 확인해야 합니다")
-    return text.strip()
-
-
-def detect_topic_type(text):
-    t = clean(text).lower()
-    if any(w in t for w in ["2차전지", "배터리", "전기차", "코인", "비트코인", "주식", "시장", "투자", "가격", "섹터"]):
-        return "시장/투자"
-    if any(w in t for w in ["트렌드", "이슈", "논란", "요즘", "급등", "관심", "바이럴"]):
-        return "트렌드/이슈"
-    if any(w in t for w in ["브랜드", "마케팅", "광고", "콘텐츠", "유튜브", "영상", "제작"]):
-        return "브랜드/마케팅"
-    if any(w in t for w in ["방법", "노하우", "강의", "배우", "체크리스트"]):
-        return "교육/노하우"
-    return "트렌드/이슈"
-
-
-def select_from_dict_like(label, options, key, default=None, height=80):
-    labels = list(options.keys())
-    index = labels.index(default) if default in labels else 0
-    selected = st.selectbox(label, labels, index=index, key=f"{key}_select")
-    if selected == "직접 입력":
-        return st.text_area(f"{label} 직접 입력", height=height, key=f"{key}_custom"), selected
-    return options[selected], selected
+def actor_names(actor_map):
+    names = []
+    if isinstance(actor_map, list):
+        for item in actor_map:
+            if isinstance(item, dict):
+                name = clean(item.get("actor"))
+                if name and name not in names:
+                    names.append(name)
+    return names[:5]
 
 
 def analyze_source(row, selected_topic_type, context):
-    title = strip_raw_labels(row.get("title"))
-    hook = strip_raw_labels(row.get("hook_point"))
-    structure = strip_raw_labels(row.get("structure_note"))
-    application = strip_raw_labels(row.get("eafi_application"))
-    summary = strip_raw_labels(row.get("summary"))
-    keywords = strip_raw_labels(row.get("keywords"))
-    transcript = strip_raw_labels(row.get("transcript"))
-    source_text = " ".join([title, hook, structure, application, summary, keywords, transcript[:1200]])
+    seed = safe_json(get_value(row, "cardnews_seed"), {})
+    actor_map = safe_json(get_value(row, "actor_map"), [])
+    timeline = safe_json(get_value(row, "event_timeline"), [])
+    evidence = safe_json(get_value(row, "evidence_points"), [])
+    cause_chain = safe_json(get_value(row, "cause_effect_chain"), [])
+    qa = safe_json(get_value(row, "source_grounded_qa"), [])
 
-    topic_type = detect_topic_type(source_text) if selected_topic_type == "자동 감지" else selected_topic_type
-    topic = shorten(title or application or hook or "원본 주제", 54)
+    raw_text = " ".join([
+        get_value(row, "title"), get_value(row, "original_topic"), get_value(row, "primary_claim"),
+        get_value(row, "summary"), get_value(row, "keywords"), get_value(row, "structure_note"),
+        get_value(row, "transcript")[:1600]
+    ])
 
-    if context["content_goal"] == "바이럴 후킹 추출":
+    source_kind = get_value(row, "source_kind") or ""
+    if not source_kind:
+        detected = detect_topic_type(raw_text)
+        source_kind = "사건형" if detected == "사건/논쟁" else "이슈해설형"
+
+    topic_type = detect_topic_type(raw_text) if selected_topic_type == "자동 감지" else selected_topic_type
+    topic = resolve_topic(row, seed)
+
+    primary_claim = get_value(row, "primary_claim") or get_value(row, "key_claim") or get_value(row, "hook_point")
+    primary_claim = strip_citations(primary_claim)
+    if not primary_claim or topic_is_bad(primary_claim):
+        if evidence:
+            primary_claim = flatten_event_text(evidence[0])
+        elif timeline:
+            primary_claim = flatten_event_text(timeline[0])
+        else:
+            primary_claim = f"{topic}은 겉으로 보이는 결과만으로 설명하기 어려운 이야기입니다"
+
+    audience_pain = strip_citations(get_value(row, "audience_pain"))
+    conflict = strip_citations(get_value(row, "contradiction_or_tension"))
+    hidden = strip_citations(get_value(row, "hidden_assumption"))
+    emotion = strip_citations(get_value(row, "emotional_trigger"))
+    viral = strip_citations(get_value(row, "viral_hook_logic"))
+    reusable = strip_citations(get_value(row, "reusable_structure"))
+
+    if not audience_pain:
+        if source_kind == "사건형":
+            audience_pain = "사람들은 결과만 먼저 보지만, 그 뒤에 얽힌 주체와 갈등의 흐름은 놓치기 쉽습니다"
+        else:
+            audience_pain = "사람들은 결론만 먼저 보다가 왜 중요한지와 무엇을 확인해야 하는지를 놓치기 쉽습니다"
+    if not conflict:
+        conflict = "겉으로 보이는 결과와 그 뒤에 숨은 이해관계가 충돌하는 구조"
+    if not hidden:
+        hidden = "겉으로 좋아 보이는 결과라면 과정도 순탄했을 것이라는 착각"
+    if not emotion:
+        emotion = "몰랐던 뒷이야기를 알게 되는 반전감과 다시 판단하고 싶은 궁금증"
+    if not viral:
+        viral = "겉으로 알려진 결과를 먼저 보여준 뒤, 뒤에 숨어 있던 갈등을 꺼내는 반전형 후킹"
+    if not reusable:
+        reusable = "결과를 먼저 보여주고, 숨은 배경과 이해관계를 드러낸 뒤, 마지막에 독자가 다시 생각할 질문으로 닫는 구조"
+
+    if context.get("content_goal") == "바이럴 후킹 추출":
         angle = f"{topic}이 사람들을 멈추게 만드는 이유"
-    elif context["content_goal"] == "교육형 요약":
+    elif source_kind == "사건형":
+        angle = f"{topic} 뒤에 숨은 갈등"
+    elif context.get("content_goal") == "교육형 요약":
         angle = f"{topic}을 이해하기 전 알아야 할 기준"
-    elif context["content_goal"] == "이슈/트렌드 재가공":
-        angle = f"{topic}에서 지금 봐야 할 흐름"
-    elif context["content_goal"] == "원본 내용 깊이 분석":
-        angle = f"{topic}의 핵심을 깊게 보는 법"
     else:
         angle = f"{topic}에서 먼저 봐야 할 것"
 
-    if topic_type == "시장/투자":
-        claim = f"{topic}에 시장의 관심이 다시 모이는 흐름을 다룹니다"
-        audience_problem = "많은 사람은 방향보다 가격만 먼저 보고, 왜 움직이는지에 대한 판단 기준을 놓치기 쉽습니다"
-        checklist = ["왜 지금 관심이 모이는가", "실제로 바뀐 지표가 있는가", "기대감과 현실 사이의 간격은 어느 정도인가", "다음 판단 기준은 무엇인가"]
-    elif topic_type == "브랜드/마케팅":
-        claim = f"{topic}이 성과로 이어지는 구조를 다룹니다"
-        audience_problem = "보기 좋은 결과물만 보다가 실제 행동으로 이어지는 흐름을 놓치기 쉽습니다"
-        checklist = ["누구에게 말하는가", "무엇을 기억하게 할 것인가", "어떤 감정을 만들 것인가", "다음 행동은 무엇인가"]
-    elif topic_type == "교육/노하우":
-        claim = f"{topic}을 더 쉽게 이해하는 기준을 다룹니다"
-        audience_problem = "방법은 많지만 무엇부터 봐야 하는지 정리되지 않아 실행이 어려워집니다"
-        checklist = ["먼저 알아야 할 개념", "흔히 하는 착각", "실제로 적용할 순서", "마지막 체크포인트"]
-    else:
-        claim = f"{topic}에 대한 관심이 커지는 흐름을 다룹니다"
-        audience_problem = "사람들은 결론만 먼저 보다가 왜 중요한지, 무엇을 확인해야 하는지 놓치기 쉽습니다"
-        checklist = ["왜 관심이 커졌는가", "사람들이 놓치는 지점은 무엇인가", "진짜 봐야 할 기준은 무엇인가", "다음에 확인할 것은 무엇인가"]
-
-    if context["analysis_depth"] == "세부 근거까지" and summary:
-        claim = f"{claim}\n근거 요약: {shorten(summary, 160)}"
-    if context["analysis_depth"] == "후킹/바이럴 관점":
-        audience_problem = "사람들이 왜 멈춰서 보는지보다 제목과 결론만 따라가려는 상태"
-    if context["target_audience"]:
-        audience_problem = f"{context['target_audience']} 기준으로 보면, {audience_problem}"
-    if context["emphasis"]:
-        audience_problem += f" 특히 {context['emphasis']} 관점이 중요합니다."
-    if context["avoid"]:
-        audience_problem += f" 다만 {context['avoid']} 관점은 제외합니다."
-
-    if len(structure) < 20:
-        structure = "후킹 질문 → 배경 설명 → 문제 정의 → 판단 기준 → 정리/CTA"
+    if isinstance(seed, dict) and seed.get("angle_candidates"):
+        first_angle = strip_citations(seed["angle_candidates"][0])
+        if first_angle and not topic_is_bad(first_angle):
+            angle = first_angle
 
     return {
+        "source_table": get_value(row, "source_table"),
+        "source_kind": source_kind,
         "topic_type": topic_type,
         "topic": topic,
-        "claim": claim,
-        "audience_problem": audience_problem,
         "angle": angle,
-        "structure": structure,
-        "checklist": checklist,
-        "source_text": source_text,
-        "keywords": keywords,
+        "primary_claim": primary_claim,
+        "claim": primary_claim,
+        "audience_problem": audience_pain,
+        "conflict": conflict,
+        "hidden_assumption": hidden,
+        "emotional_trigger": emotion,
+        "viral_hook_logic": viral,
+        "reusable_structure": reusable,
+        "actor_map": actor_map,
+        "actor_names": actor_names(actor_map),
+        "event_timeline": timeline,
+        "evidence_points": evidence,
+        "cause_effect_chain": cause_chain,
+        "source_grounded_qa": qa,
+        "cardnews_seed": seed,
+        "keywords": get_value(row, "keywords"),
     }
 
 
 def resolve_auto_angle(value, analysis):
     if value and value != "__AUTO__":
+        # 내부 옵션 설명문은 그대로 카피에 쓰지 않고 방향성만 참고한다.
+        if "카드뉴스" in value:
+            if analysis["source_kind"] == "사건형":
+                return f"{analysis['topic']} 뒤에 숨은 이야기"
+            return analysis["angle"]
         return value
     return analysis["angle"]
 
 
 def resolve_auto_problem(value, analysis):
     if value and value != "__AUTO__":
+        if "카드뉴스" in value:
+            return analysis["audience_problem"]
         return value
     return analysis["audience_problem"]
 
 
-def build_plan(ctx):
-    analysis = ctx["analysis"]
-    template = ctx["template"]
+def timeline_text(timeline, index, fallback):
+    if isinstance(timeline, list) and len(timeline) > index:
+        value = flatten_event_text(timeline[index])
+        if value:
+            return shorten(value, 96)
+    return fallback
+
+
+def evidence_text(evidence, index, fallback):
+    if isinstance(evidence, list) and len(evidence) > index:
+        value = flatten_event_text(evidence[index])
+        if value:
+            return shorten(value, 96)
+    return fallback
+
+
+def build_event_plan(ctx):
+    a = ctx["analysis"]
     tone = ctx["tone"]
-    angle = ctx["angle"] or analysis["angle"]
-    problem = ctx["problem"] or analysis["audience_problem"]
     cta = ctx["cta"]
-    topic = analysis["topic"]
+    topic = a["topic"]
+    actors = a["actor_names"] or ["회사", "직원", "시민"]
+    actor_line = ", ".join(actors[:4])
+
+    first_event = timeline_text(a["event_timeline"], 0, "처음엔 평범한 이야기처럼 보였습니다")
+    second_event = timeline_text(a["event_timeline"], 1, a["primary_claim"])
+    evidence = evidence_text(a["evidence_points"], 0, a["primary_claim"])
+
+    slides = [
+        f"{shorten(topic, 28)}\n그 뒤에는 다른 이야기가 있었습니다",
+        f"겉으로 보이는 건 결과입니다\n{first_event}",
+        f"하지만 이 이야기엔\n{actor_line}가 얽혀 있었습니다",
+        f"갈등은 여기서 시작됩니다\n{shorten(a['conflict'], 90)}",
+        f"사람들이 놓치기 쉬운 건\n{shorten(a['hidden_assumption'], 90)}",
+        f"이 이야기를 어떻게 보시나요?\n{cta}",
+    ]
+
+    if ctx["template"] == "전후 비교형":
+        slides = [
+            f"같은 사건도\n보는 위치에 따라 달라집니다",
+            f"겉으로는\n{shorten(first_event, 86)}",
+            f"안쪽으로 들어가면\n{shorten(second_event, 86)}",
+            f"여기엔\n{actor_line}의 이해관계가 겹쳐 있습니다",
+            f"결국 남는 질문은 이것입니다\n{shorten(a['conflict'], 86)}",
+            f"당신은 이 결말을\n어떻게 보시나요?\n{cta}",
+        ]
+    elif ctx["template"] == "체크리스트형":
+        slides = [
+            f"{shorten(topic, 26)}\n보기 전에 확인할 4가지",
+            f"1. 결과만 보고 있지 않은가\n{shorten(first_event, 72)}",
+            f"2. 누가 얽혀 있는가\n{actor_line}",
+            f"3. 갈등의 축은 무엇인가\n{shorten(a['conflict'], 76)}",
+            f"4. 어떤 전제가 숨어 있는가\n{shorten(a['hidden_assumption'], 76)}",
+            f"미담과 갈등은\n같은 장면에 남을 수 있습니다\n{cta}",
+        ]
+    elif ctx["template"] == "교육형":
+        slides = [
+            f"이 사건은\n결과보다 구조를 봐야 합니다",
+            f"첫 번째\n{shorten(first_event, 86)}",
+            f"두 번째\n{shorten(evidence, 86)}",
+            f"세 번째\n{shorten(a['conflict'], 86)}",
+            f"그래서 핵심은\n{shorten(a['reusable_structure'], 86)}",
+            f"이 기준으로 보면\n사건이 다르게 보입니다\n{cta}",
+        ]
+
+    directions = [
+        "평화로운 현재의 결과와 그 뒤에 숨은 과거의 그림자를 동시에 보여주는 첫 장. 밝은 공간 위에 희미한 갈등의 흔적을 겹쳐 배치.",
+        "겉으로 알려진 결과를 설명하는 장면. 공원, 건물, 뉴스 헤드라인, 오래된 자료 사진 느낌을 조합.",
+        f"등장 주체를 한눈에 보여주는 관계도. {actor_line}가 서로 다른 위치에 놓이고, 선으로 이해관계가 연결되는 구성.",
+        "갈등의 축을 시각화한 장면. 한쪽은 공익 또는 결과, 다른 한쪽은 생존권/이해관계/불안을 상징하도록 대비.",
+        "아이러니를 보여주는 장면. 같은 장소를 바라보는 두 시선이 좌우로 갈라져 보이게 구성.",
+        "마지막 질문형 카드. 차분한 배경 위에 독자가 다시 생각하게 만드는 여백 중심의 마무리 장면.",
+    ]
+    prompts = build_prompts(ctx, directions, slides)
+
+    return finalize_plan(ctx, f"[사건형] {shorten(topic, 44)}", a["audience_problem"], slides, directions, prompts)
+
+
+def build_generic_plan(ctx):
+    a = ctx["analysis"]
+    template = ctx["template"]
+    cta = ctx["cta"]
+    topic = a["topic"]
+    angle = ctx["angle"] or a["angle"]
+    problem = ctx["problem"] or a["audience_problem"]
 
     if template == "체크리스트형":
-        items = analysis["checklist"]
         slides = [
-            f"{shorten(angle, 30)}\n보기 전에 체크할 4가지",
-            f"1. {items[0]}",
-            f"2. {items[1]}",
-            f"3. {items[2]}",
-            f"4. {items[3]}",
-            f"결론보다 중요한 건\n판단 기준을 갖는 것입니다\n{cta}",
+            f"{shorten(topic, 28)}\n보기 전에 확인할 4가지",
+            f"1. 왜 지금 중요한가\n{shorten(a['primary_claim'], 74)}",
+            f"2. 사람들이 놓친 건 무엇인가\n{shorten(problem, 74)}",
+            f"3. 어떤 기준으로 봐야 하는가\n{shorten(a['reusable_structure'], 74)}",
+            f"4. 어떤 리스크를 봐야 하는가\n{shorten(a['hidden_assumption'], 74)}",
+            f"이 기준은 저장해두고\n다시 확인해보세요\n{cta}",
         ]
     elif template == "전후 비교형":
         slides = [
-            f"{shorten(topic, 30)}\n반응이 갈리는 이유",
-            f"Before\n결론부터 보고 따라가는 상태",
-            f"After\n왜 움직이는지 기준을 먼저 보는 상태",
+            f"{shorten(topic, 28)}\n반응이 갈리는 이유",
+            "Before\n결론부터 보고 따라가는 상태",
+            f"After\n{shorten(a['reusable_structure'], 76)}",
             f"차이는 여기서 납니다\n{shorten(problem, 82)}",
-            f"그래서 봐야 할 건\n{shorten(analysis['structure'], 82)}",
+            f"핵심은\n{shorten(a['primary_claim'], 82)}",
             f"이 흐름이 중요하다고 느꼈다면\n{cta}",
         ]
     elif template == "교육형":
         slides = [
-            f"{shorten(angle, 30)}\n이 원리부터 보면 쉽습니다",
-            analysis["claim"],
-            f"첫 번째는 문제 인식\n{shorten(problem, 82)}",
-            f"두 번째는 판단 기준\n{shorten(analysis['structure'], 82)}",
-            "세 번째는 적용입니다\n정보를 그대로 믿기보다\n내 상황에 맞게 다시 봐야 합니다",
+            f"{shorten(topic, 28)}\n이 기준부터 보면 쉽습니다",
+            f"먼저 봐야 할 건\n{shorten(a['primary_claim'], 86)}",
+            f"사람들이 놓치는 건\n{shorten(problem, 86)}",
+            f"다음으로 볼 건\n{shorten(a['conflict'], 86)}",
+            f"정리하면\n{shorten(a['reusable_structure'], 86)}",
             f"이 기준은 저장해두고\n다시 확인해보세요\n{cta}",
-        ]
-    elif template == "트렌드 분석형":
-        slides = [
-            f"{shorten(topic, 30)}\n왜 지금 다시 보일까요?",
-            analysis["claim"],
-            f"관심이 커질수록\n{shorten(problem, 82)}",
-            "중요한 건 분위기가 아니라\n그 흐름을 만든 이유입니다",
-            f"지금 볼 기준은\n{shorten(analysis['structure'], 82)}",
-            f"다음 흐름도 놓치고 싶지 않다면\n{cta}",
         ]
     else:
         slides = [
-            f"{shorten(angle, 30)}\n지금 봐야 할 건 따로 있습니다",
-            analysis["claim"],
-            f"문제는\n{shorten(problem, 82)}입니다",
-            "결론보다 중요한 건\n왜 움직이는지 보는 기준입니다",
-            f"핵심 흐름은\n{shorten(analysis['structure'], 82)}",
+            f"{shorten(angle, 30)}",
+            f"핵심은 이것입니다\n{shorten(a['primary_claim'], 92)}",
+            f"문제는\n{shorten(problem, 92)}",
+            f"놓치면 안 되는 기준은\n{shorten(a['conflict'], 92)}",
+            f"재사용할 수 있는 구조는\n{shorten(a['reusable_structure'], 92)}",
             f"이 기준이 필요했다면\n{cta}",
         ]
 
-    images = build_images(ctx, template)
-    slides = [polish(slide, tone) for slide in slides]
-    return {
-        "title": f"[원본 주제] {shorten(angle, 48)}",
-        "target_customer": ctx["topic_type"],
-        "core_problem": polish(problem, tone),
-        "main_message": polish(f"{topic}에서 중요한 건 결론보다 왜 지금 중요한지 판단하는 기준입니다", tone),
-        "cta": polish(cta, tone),
-        "common_style": ctx["common_style"],
-        "slides": slides,
-        "images": images,
-    }
+    directions = [
+        "원본 주제를 상징하는 첫 장. 큰 오브젝트와 짧은 문장으로 초반 주목도를 만드는 구성.",
+        "핵심 주장을 보여주는 장면. 중심 메시지와 관련 이미지가 명확히 연결되게 구성.",
+        "독자가 놓치기 쉬운 문제를 시각화. 잘못된 판단과 올바른 판단 기준을 대비.",
+        "핵심 기준을 분석하는 장면. 원인, 배경, 판단 포인트를 3갈래로 정리한 보드.",
+        "재사용 가능한 구조를 보여주는 카드. 체크포인트와 흐름도가 한눈에 보이게 구성.",
+        "저장, 공유, 댓글 같은 행동을 유도하는 마무리 카드. CTA가 선명한 여백 중심 구성.",
+    ]
+    prompts = build_prompts(ctx, directions, slides)
+
+    return finalize_plan(ctx, f"[원본 주제] {shorten(angle, 44)}", problem, slides, directions, prompts)
 
 
-def build_images(ctx, template):
-    topic = ctx["analysis"]["topic"]
+def build_prompts(ctx, directions, slides):
     ratio = RATIO_PROMPTS[ctx["image_ratio"]]
     style = VISUAL_STYLES[ctx["image_style"]]
     copy_rule = (
-        "include short Korean headline text with safe margins"
+        "include a short Korean headline, safe margins, clean readable text"
         if ctx["include_image_copy"] else
         "clean image only, no text, no captions, no typography, no letters, no watermark, no logo"
     )
+    prompts = []
+    for idx, direction in enumerate(directions, start=1):
+        copy_hint = shorten(slides[idx - 1].replace("\n", " / "), 80)
+        prompts.append(f"{ratio}, {style}. {direction} Copy intent: {copy_hint}. {copy_rule}")
+    return prompts
 
-    if template == "체크리스트형":
-        ideas = [
-            f"{topic}를 상징하는 강한 첫 장. 큰 제목, 핵심 오브젝트, 짧은 경고성 분위기.",
-            "체크리스트 1번을 보여주는 카드. 원인 또는 배경을 한눈에 보여주는 아이콘과 짧은 구조도.",
-            "체크리스트 2번을 보여주는 카드. 수치, 지표, 비교 표식이 보이는 분석형 구성.",
-            "체크리스트 3번을 보여주는 카드. 사람들이 흔히 놓치는 지점을 빨간 표시로 강조.",
-            "체크리스트 4번을 보여주는 카드. 다음 행동 기준을 정리한 깔끔한 보드.",
-            "저장/공유/댓글 행동을 유도하는 마무리 카드. 여백 중심의 깔끔한 CTA 구성.",
-        ]
-    else:
-        ideas = [
-            f"{topic}를 상징하는 첫 장. 뉴스 헤드라인, 데이터 패널, 주목받는 오브젝트를 강한 후킹 구도로 표현.",
-            "원본 주제에 관심이 몰리는 흐름을 보여주는 장면. 검색량, 뉴스, 커뮤니티 반응이 정리된 느낌.",
-            "독자가 놓치기 쉬운 문제를 시각화. 잘못된 판단과 올바른 판단 기준이 대비되는 인포그래픽.",
-            "원인과 배경을 분석하는 장면. 흐름을 만든 이유가 3가지 가지로 나뉘어 보이는 보드.",
-            "핵심 기준을 정리한 카드. 체크포인트, 판단 기준, 다음 확인 지점이 한눈에 보이게 구성.",
-            "저장, 공유, 댓글 같은 행동을 유도하는 마무리 카드. CTA가 선명한 구성.",
-        ]
-    return [f"{ratio}, {style}. {idea} {copy_rule}" for idea in ideas]
+
+def finalize_plan(ctx, title, main_message, slides, directions, prompts):
+    tone = ctx["tone"]
+    slides = [polish(slide, tone) for slide in slides]
+    return {
+        "title": polish(title, tone),
+        "target_customer": ctx["topic_type"],
+        "core_problem": polish(ctx.get("problem") or main_message, tone),
+        "main_message": polish(main_message, tone),
+        "cta": polish(ctx["cta"], tone),
+        "common_style": ctx["common_style"],
+        "slides": slides,
+        "directions": directions,
+        "prompts": prompts,
+        "images": [f"장면 방향:\n{directions[i]}\n\n이미지 생성 프롬프트:\n{prompts[i]}" for i in range(6)],
+    }
+
+
+def build_plan(ctx):
+    if ctx["analysis"]["source_kind"] == "사건형":
+        return build_event_plan(ctx)
+    return build_generic_plan(ctx)
 
 
 def save_plan(reference_id, plan):
@@ -459,15 +713,26 @@ def render_editable(plan, version):
     cta = st.text_input("CTA", value=plan["cta"], key=f"ot_cta_{suffix}")
 
     st.markdown("### 6장 카드뉴스 구성 직접 수정")
-    slides, images = [], []
-    for idx, (copy, image) in enumerate(zip(plan["slides"], plan["images"]), start=1):
+    slides, directions, prompts = [], [], []
+    for idx in range(6):
         with st.container(border=True):
-            st.markdown(f"#### {idx}장")
-            slides.append(st.text_area("카피", value=copy, height=120, key=f"ot_slide_{idx}_{suffix}"))
-            images.append(st.text_area("장별 이미지 방향", value=image, height=110, key=f"ot_image_{idx}_{suffix}"))
+            st.markdown(f"#### {idx + 1}장")
+            slides.append(st.text_area("카피", value=plan["slides"][idx], height=110, key=f"ot_slide_{idx}_{suffix}"))
+            directions.append(st.text_area("장면 방향", value=plan["directions"][idx], height=90, key=f"ot_direction_{idx}_{suffix}"))
+            prompts.append(st.text_area("이미지 생성 프롬프트", value=plan["prompts"][idx], height=120, key=f"ot_prompt_{idx}_{suffix}"))
 
     edited = dict(plan)
-    edited.update({"common_style": common_style, "title": title, "core_problem": core_problem, "main_message": main_message, "cta": cta, "slides": slides, "images": images})
+    edited.update({
+        "common_style": common_style,
+        "title": title,
+        "core_problem": core_problem,
+        "main_message": main_message,
+        "cta": cta,
+        "slides": slides,
+        "directions": directions,
+        "prompts": prompts,
+        "images": [f"장면 방향:\n{directions[i]}\n\n이미지 생성 프롬프트:\n{prompts[i]}" for i in range(6)],
+    })
     return edited
 
 
@@ -476,14 +741,14 @@ def main():
     init_table()
 
     st.title("📰 원본 주제 카드뉴스")
-    st.caption("YouTube 분석 데이터나 참고 콘텐츠를 카드뉴스로 재가공합니다. 이미지 비율, 스타일, 카피 포함 여부까지 여기서 설정합니다.")
+    st.caption("YouTube 원본 해석 데이터를 받아 카드뉴스로 조립합니다. 사건형은 사건 구조 전용 빌더로 생성합니다.")
 
     refs = load_references()
     if refs.empty:
-        st.warning("먼저 YouTube 영상 내용 분석에서 분석 결과를 저장하세요.")
+        st.warning("먼저 YouTube 영상 내용 분석에서 원본 해석 결과를 저장하세요.")
         return
 
-    options = {f"{row['source_table']} · {row['id']} · {clean(row['title'])}": row for _, row in refs.iterrows()}
+    options = {f"{get_value(row, 'source_table')} · {row['id']} · {get_value(row, 'original_topic') or get_value(row, 'title')}": row for _, row in refs.iterrows()}
     selected_key = st.selectbox("원본 콘텐츠 선택", list(options.keys()))
     row = options[selected_key]
 
@@ -506,8 +771,8 @@ def main():
         angle_value, angle_label = select_from_dict_like("카드뉴스 핵심 각도", ANGLE_PRESETS, "ot_angle", "자동 생성")
         problem_value, problem_label = select_from_dict_like("핵심 문제", PROBLEM_PRESETS, "ot_problem_preset", "자동 추출")
     with c5:
-        emphasis = st.text_input("강조할 관점", placeholder="예: 전환 구조, 비용 누수, 판단 기준, 바이럴 후킹")
-        avoid = st.text_input("제외할 관점", placeholder="예: 과한 투자 조언, 원문 그대로 요약, 브랜드명 과다 노출")
+        emphasis = st.text_input("강조할 관점", placeholder="예: 사건의 아이러니, 갈등 축, 독자가 놓친 사실, 후킹 방식")
+        avoid = st.text_input("제외할 관점", placeholder="예: 과한 투자 조언, 원문 밖 단정, 브랜드명 과다 노출")
         cta, cta_label = select_from_dict_like("CTA", CTA_PRESETS, "ot_cta_preset", "저장 유도")
 
     st.markdown("### 이미지 생성 조건")
@@ -532,26 +797,36 @@ def main():
     if topic_type_select == "직접 입력":
         analysis["topic_type"] = st.text_input("주제 유형 직접 입력", value="사용자 정의")
 
+    if template == "자동 최적화":
+        effective_template = "문제 제기형" if analysis["source_kind"] == "사건형" else "체크리스트형"
+    else:
+        effective_template = template
+
     angle = resolve_auto_angle(angle_value, analysis)
     problem = resolve_auto_problem(problem_value, analysis)
-    common_style = f"{RATIO_PROMPTS[image_ratio]}, {VISUAL_STYLES[image_style]}. 플랫폼: {platform_focus}."
+
+    common_style = f"비율: {image_ratio} / 스타일: {image_style} / 사용처: {platform_focus}."
     if include_image_copy:
-        common_style += " 이미지 안에 짧은 한글 헤드라인을 넣을 수 있음. 안전 여백 확보."
+        common_style += " 이미지 안에 짧은 한글 헤드라인 포함 가능. 안전 여백 확보."
     else:
-        common_style += " clean image only, no text, no captions, no typography, no letters, no watermark, no logo."
+        common_style += " 텍스트 없는 클린 이미지. no text, no captions, no typography, no letters, no watermark, no logo."
 
     with st.expander("원본 분석 결과", expanded=True):
         st.write(f"**감지된 주제 유형:** {analysis['topic_type']}")
+        st.write(f"**원본 유형:** {analysis['source_kind']}")
         st.write(f"**원본 주제:** {analysis['topic']}")
-        st.write(f"**핵심 주장:** {analysis['claim']}")
+        st.write(f"**핵심 주장:** {analysis['primary_claim']}")
         st.write(f"**독자 문제:** {analysis['audience_problem']}")
-        st.write(f"**차용할 전개 구조:** {analysis['structure']}")
+        st.write(f"**갈등/긴장 구조:** {analysis['conflict']}")
+        st.write(f"**차용할 전개 구조:** {analysis['reusable_structure']}")
+        if analysis.get("actor_names"):
+            st.write(f"**등장 주체:** {', '.join(analysis['actor_names'])}")
         if analysis.get("keywords"):
             st.write(f"**키워드:** {analysis['keywords']}")
 
     ctx = {
         "analysis": analysis,
-        "template": template,
+        "template": effective_template,
         "tone": tone,
         "topic_type": analysis["topic_type"],
         "angle": angle,
@@ -565,9 +840,10 @@ def main():
     plan = build_plan(ctx)
 
     signature = "|".join([
-        str(int(row["id"])), clean(row.get("source_table")), analysis["topic_type"], content_goal, platform_focus,
-        analysis_depth, template, tone, target_label, angle_label, problem_label, image_ratio, image_style,
-        str(include_image_copy), angle, problem, cta, emphasis, avoid,
+        str(int(row["id"])), get_value(row, "source_table"), analysis["topic"], analysis["source_kind"],
+        analysis["topic_type"], content_goal, platform_focus, analysis_depth, effective_template, tone,
+        target_label, angle_label, problem_label, image_ratio, image_style, str(include_image_copy),
+        angle, problem, cta, emphasis, avoid,
     ])
     update_state(plan, signature)
 
@@ -577,7 +853,7 @@ def main():
             update_state(plan, signature, force=True)
             st.rerun()
     with col_info:
-        st.info("카드뉴스 제작 조건은 이 메뉴에서 설정합니다. YouTube 분석 메뉴는 원문 수집/분석 저장만 담당합니다.")
+        st.info("YouTube 원본 해석기의 source_kind, event_timeline, actor_map, cardnews_seed를 우선 사용합니다. 이미지 방향과 생성 프롬프트는 분리해 표시합니다.")
 
     st.markdown("---")
     draft = st.session_state.get("original_topic_plan", plan)
