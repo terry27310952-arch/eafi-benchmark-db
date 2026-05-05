@@ -8,7 +8,7 @@ import streamlit as st
 
 DB_PATH = Path("eafi_benchmark.db")
 
-PLAN_TYPES = ["eaf 서비스 전환형", "원본 주제 카드뉴스형", "벤치마크 구조만 차용"]
+PLAN_TYPES = ["eaf 서비스 전환형", "벤치마크 구조만 차용"]
 TEMPLATE_OPTIONS = ["문제 제기형", "오해 반박형", "전후 비교형", "체크리스트형", "레퍼런스 분석형", "교육형"]
 TONE_LEVELS = ["담백", "명확", "강한 후킹", "자극적"]
 VISUAL_STYLES = ["브랜드 캐릭터 중심", "실사 오피스 시네마틱", "인포그래픽 중심", "전후 비교형", "제품/포트폴리오 중심", "혼합형"]
@@ -101,11 +101,12 @@ OFFERS = {
     "직접 입력": "",
 }
 
-GENERIC_PROBLEMS = {
-    "시장 기대감만 보고 판단": "무엇이 움직이는지보다 얼마나 오를지만 먼저 보는 상태",
-    "근거 없는 관심 급등": "관심은 커졌지만 실제 변화의 이유가 정리되지 않은 상태",
-    "타이밍 착각": "시장이 움직인 뒤에야 이유를 찾는 상태",
-    "정보 과잉": "뉴스와 의견은 많지만 판단 기준은 흐려진 상태",
+BENCHMARK_STRUCTURES = {
+    "후킹 질문형": "후킹 질문 → 문제 상황 → 놓친 지점 → 해결 구조 → CTA",
+    "오해 반박형": "흔한 오해 → 반박 → 진짜 원인 → 해결 방식 → CTA",
+    "체크리스트형": "큰 질문 → 체크포인트 1 → 체크포인트 2 → 체크포인트 3 → CTA",
+    "전후 비교형": "Before → 문제 원인 → After → 차이를 만든 구조 → CTA",
+    "케이스 분석형": "사례 소개 → 잘된 이유 → 차용할 구조 → 우리식 적용 → CTA",
     "직접 입력": "",
 }
 
@@ -118,8 +119,6 @@ COMMON_STYLE = {
     "혼합형": "eaf: 레드, 블랙, 웜 그레이 기반. 실사 장면과 인포그래픽을 자연스럽게 섞은 카드뉴스 톤.",
 }
 
-
-# ---------- DB ----------
 
 def connect_db():
     conn = sqlite3.connect(DB_PATH)
@@ -159,28 +158,15 @@ def init_cardnews_table():
     conn.close()
 
 
-def load_references():
-    conn = connect_db()
-    df = pd.read_sql_query("""
-        SELECT r.id, c.platform, c.channel_name, c.category, r.title, r.url,
-               r.hook_point, r.structure_note, r.visual_note, r.eafi_application,
-               r.total_score, r.status, r.created_at
-        FROM content_references r
-        LEFT JOIN benchmark_channels c ON r.channel_id = c.id
-        ORDER BY r.id DESC
-    """, conn)
-    conn.close()
-    return df
-
-
 def load_plans():
     conn = connect_db()
-    df = pd.read_sql_query("SELECT * FROM cardnews_plans ORDER BY id DESC LIMIT 50", conn)
+    try:
+        df = pd.read_sql_query("SELECT * FROM cardnews_plans ORDER BY id DESC LIMIT 50", conn)
+    except Exception:
+        df = pd.DataFrame()
     conn.close()
     return df
 
-
-# ---------- Text utilities ----------
 
 def clean(value, fallback=""):
     if value is None:
@@ -191,13 +177,15 @@ def clean(value, fallback=""):
     return text or fallback
 
 
-def strip_raw_labels(text):
-    text = clean(text)
+def compact_lines(text):
+    return "\n".join([line.strip() for line in clean(text).splitlines() if line.strip()])
+
+
+def shorten(text, max_len=92):
+    text = re.sub(r"https?://\S+", "", clean(text))
     text = re.sub(r"(?im)^\s*(title|url|source|link|영상 제목|제목)\s*[:：]\s*", "", text)
-    text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"www\.\S+", "", text)
     text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
 
 
 def remove_brand_overuse(text, brand="eaf:"):
@@ -210,22 +198,12 @@ def remove_brand_overuse(text, brand="eaf:"):
     return "\n".join(cleaned)
 
 
-def compact_lines(text):
-    return "\n".join([line.strip() for line in clean(text).splitlines() if line.strip()])
-
-
-def shorten(text, max_len=92):
-    text = strip_raw_labels(text)
-    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
-
-
 def humanize(text, tone="명확", brand="eaf:"):
-    text = compact_lines(strip_raw_labels(text))
+    text = compact_lines(shorten(line, 200) for line in clean(text).splitlines())
     replacements = {
         "핵심 문제": "문제의 핵심",
         "전환되는 구조": "문의로 이어지는 구조",
         "진짜 병목": "정작 중요한 지점",
-        "결과는 생각보다 조용합니다": "반응은 조용할 수 있습니다",
         "없으면": "없다면",
         "합니다입니다": "합니다",
     }
@@ -239,64 +217,6 @@ def humanize(text, tone="명확", brand="eaf:"):
         text = text.replace("어렵습니다", "어려워집니다")
     return text.strip()
 
-
-def sentence_case_title(text):
-    text = strip_raw_labels(text)
-    text = text.replace("|", " ").replace("- YouTube", "")
-    return shorten(text, 54)
-
-
-def detect_unrelated_to_eaf(text):
-    service_words = ["영상", "촬영", "편집", "브랜드", "광고", "콘텐츠", "유튜브", "숏폼", "제작", "마케팅"]
-    return not any(word in clean(text) for word in service_words)
-
-
-# ---------- Source analysis layer ----------
-
-def analyze_source(row):
-    title = strip_raw_labels(row.get("title"))
-    hook = strip_raw_labels(row.get("hook_point"))
-    structure = strip_raw_labels(row.get("structure_note"))
-    visual = strip_raw_labels(row.get("visual_note"))
-    app = strip_raw_labels(row.get("eafi_application"))
-
-    source_text = " ".join([title, hook, structure, app])
-    original_topic = sentence_case_title(title or app or hook or "원본 콘텐츠")
-
-    if any(token in source_text for token in ["2차전지", "배터리", "전기차"]):
-        original_claim = "2차전지 섹터에 다시 관심이 모이는 흐름을 다룹니다"
-        audience_pain = "사람들은 상승 가능성은 보지만, 왜 지금 움직이는지 판단 기준을 놓치기 쉽습니다"
-        generic_angle = "2차전지 관심이 다시 올라오는 이유"
-    elif any(token in source_text.lower() for token in ["bitcoin", "coin", "코인", "비트코인", "알트"]):
-        original_claim = "시장 변화 속에서 투자자가 봐야 할 신호를 다룹니다"
-        audience_pain = "사람들은 가격만 먼저 보다가 움직임의 이유와 리스크를 놓치기 쉽습니다"
-        generic_angle = "시장이 움직일 때 먼저 확인해야 할 것"
-    elif any(token in source_text for token in ["영상", "촬영", "편집", "브랜드", "콘텐츠", "유튜브"]):
-        original_claim = "영상 콘텐츠가 성과로 이어지는 구조를 다룹니다"
-        audience_pain = "보기 좋은 결과물에 집중하다가 목적과 전환 흐름을 놓치기 쉽습니다"
-        generic_angle = "좋은 영상과 문의로 이어지는 영상의 차이"
-    else:
-        original_claim = f"{original_topic}에 대한 관심 포인트를 다룹니다"
-        audience_pain = "사람들은 결론만 먼저 보다가 왜 중요한지, 무엇을 봐야 하는지 놓치기 쉽습니다"
-        generic_angle = f"{original_topic}에서 먼저 봐야 할 것"
-
-    transferable_structure = structure if len(structure) > 20 else "후킹 질문 → 배경 설명 → 핵심 문제 → 판단 기준 → 행동 유도"
-    eaf_angle = "레퍼런스의 전개 방식을 빌려 영상 제작 전 반드시 정리해야 할 구조로 재해석"
-
-    return {
-        "original_title": title,
-        "original_topic": original_topic,
-        "original_claim": original_claim,
-        "audience_pain": audience_pain,
-        "transferable_structure": transferable_structure,
-        "eaf_angle": eaf_angle,
-        "generic_angle": generic_angle,
-        "visual_note": visual,
-        "source_is_unrelated_to_eaf": detect_unrelated_to_eaf(source_text),
-    }
-
-
-# ---------- UI helpers ----------
 
 def select_from_dict(label, options, key, default=None, height=80):
     labels = list(options.keys())
@@ -324,11 +244,24 @@ def split_target_label(target):
     return target.strip() or "브랜드/마케팅 담당자"
 
 
-# ---------- Plan builders ----------
+def finalize_plan(ctx, title, main_message, slides, images):
+    tone = ctx["tone"]
+    brand = ctx["brand"]
+    slides = [humanize(remove_brand_overuse(slide, brand), tone, brand) for slide in slides]
+    return {
+        "title": humanize(title, tone, brand),
+        "target_customer": ctx.get("target", ""),
+        "core_problem": humanize(ctx.get("problem") or "", tone, brand),
+        "main_message": humanize(main_message, tone, brand),
+        "cta": humanize(ctx["cta"], tone, brand),
+        "common_style": COMMON_STYLE.get(ctx["visual_style"], COMMON_STYLE["혼합형"]),
+        "slides": slides,
+        "images": images,
+    }
+
 
 def build_service_plan(ctx):
     brand = ctx["brand"]
-    tone = ctx["tone"]
     target_label = split_target_label(ctx["target"])
     intro = ctx["intro"]
     problem = ctx["problem"]
@@ -379,53 +312,13 @@ def build_service_plan(ctx):
     return finalize_plan(ctx, title, main_message, slides, images)
 
 
-def build_original_topic_plan(ctx):
-    analysis = ctx["analysis"]
-    tone = ctx["tone"]
-    topic = ctx["angle"] or analysis["generic_angle"]
-    problem = ctx["generic_problem"]
-    cta = ctx["cta"]
-
-    slides = [
-        f"{shorten(topic, 30)}\n지금 봐야 할 건 따로 있습니다",
-        analysis["original_claim"],
-        f"문제는\n{shorten(problem, 88)}입니다",
-        f"그래서 핵심은\n{shorten(analysis['audience_pain'], 88)}",
-        "결론보다 중요한 건\n움직이는 이유와 판단 기준입니다",
-        f"이 흐름을 놓치고 싶지 않다면\n{cta}",
-    ]
-
-    if ctx["template"] == "체크리스트형":
-        slides = [
-            f"{shorten(topic, 30)}\n보기 전에 체크할 4가지",
-            "1. 왜 지금 관심이 모이는가",
-            "2. 실제로 바뀐 지표가 있는가",
-            "3. 기대감과 현실 사이의 간격은 어느 정도인가",
-            "4. 다음 행동을 결정할 기준은 무엇인가",
-            f"핵심은 결론이 아니라\n판단 기준을 갖는 것입니다\n{cta}",
-        ]
-
-    images = [
-        "원본 주제를 상징하는 첫 장. 뉴스 헤드라인, 시장 그래프, 사람들이 주목하는 장면을 강한 후킹 구도로 표현.",
-        "관심이 몰리는 흐름을 보여주는 장면. 검색량, 뉴스, 커뮤니티 반응이 한 화면에 정리된 느낌.",
-        "잘못된 판단과 올바른 판단 기준을 나누는 인포그래픽. 빨간 경고 표시와 체크 포인트를 활용.",
-        "왜 지금 움직이는지 분석하는 장면. 원인, 기대감, 리스크가 세 갈래로 정리된 보드.",
-        "판단 기준을 정리한 체크리스트 카드. 핵심 지표와 다음 확인 포인트가 보이도록 구성.",
-        "저장/공유/문의로 이어지는 마무리 카드. 깔끔한 여백과 강한 CTA 중심.",
-    ]
-
-    title = f"[{ctx['template']}] {shorten(topic, 46)}"
-    main_message = f"{analysis['original_topic']}에서 중요한 건 결론보다 왜 지금 움직이는지 판단하는 기준입니다."
-    return finalize_plan(ctx, title, main_message, slides, images)
-
-
 def build_structure_only_plan(ctx):
-    analysis = ctx["analysis"]
+    structure = ctx["benchmark_structure"]
     cta = ctx["cta"]
     slides = [
         "잘 만든 콘텐츠는\n전개 순서가 다릅니다",
         "사람을 붙잡는 건\n화려한 화면보다 먼저 던지는 질문입니다",
-        f"이 레퍼런스의 구조는\n{shorten(analysis['transferable_structure'], 86)}",
+        f"이 구조의 핵심은\n{shorten(structure, 86)}",
         "그 구조를 그대로 베끼는 게 아니라\n우리 브랜드의 목적에 맞게 바꿔야 합니다",
         "핵심은 톤앤매너가 아니라\n문제 제기, 납득, 행동 유도의 순서입니다",
         f"이런 콘텐츠 구조가 필요하다면\n{cta}",
@@ -443,24 +336,6 @@ def build_structure_only_plan(ctx):
     return finalize_plan(ctx, title, main_message, slides, images)
 
 
-def finalize_plan(ctx, title, main_message, slides, images):
-    tone = ctx["tone"]
-    brand = ctx["brand"]
-    slides = [humanize(remove_brand_overuse(slide, brand), tone, brand) for slide in slides]
-    return {
-        "title": humanize(title, tone, brand),
-        "target_customer": ctx.get("target", ""),
-        "core_problem": humanize(ctx.get("problem") or ctx.get("generic_problem") or "", tone, brand),
-        "main_message": humanize(main_message, tone, brand),
-        "cta": humanize(ctx["cta"], tone, brand),
-        "common_style": COMMON_STYLE.get(ctx["visual_style"], COMMON_STYLE["혼합형"]),
-        "slides": slides,
-        "images": images,
-    }
-
-
-# ---------- State / save ----------
-
 def update_state(plan, signature, force=False):
     if force or st.session_state.get("v5_signature") != signature or "v5_plan" not in st.session_state:
         st.session_state["v5_signature"] = signature
@@ -468,7 +343,7 @@ def update_state(plan, signature, force=False):
         st.session_state["v5_version"] = st.session_state.get("v5_version", 0) + 1
 
 
-def save_plan(reference_id, plan):
+def save_plan(plan):
     conn = connect_db()
     cur = conn.cursor()
     cur.execute("""
@@ -478,7 +353,7 @@ def save_plan(reference_id, plan):
          image_1, image_2, image_3, image_4, image_5, image_6, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        reference_id,
+        None,
         plan["title"],
         plan["target_customer"],
         plan["core_problem"],
@@ -513,15 +388,7 @@ def render_editable(plan, version):
             images.append(st.text_area("장별 이미지 방향", value=image, height=100, key=f"v5_image_{idx}_{suffix}"))
 
     edited = dict(plan)
-    edited.update({
-        "common_style": common_style,
-        "title": title,
-        "core_problem": core_problem,
-        "main_message": main_message,
-        "cta": cta,
-        "slides": slides,
-        "images": images,
-    })
+    edited.update({"common_style": common_style, "title": title, "core_problem": core_problem, "main_message": main_message, "cta": cta, "slides": slides, "images": images})
     return edited
 
 
@@ -530,37 +397,12 @@ def main():
     init_cardnews_table()
 
     st.title("🧠 카드뉴스 설계 엔진 V5")
-    st.caption("원본 필드 끼워넣기를 막고, 원본 분석 → 콘텐츠 목적 분기 → 카드뉴스 재구성 순서로 생성합니다.")
+    st.caption("참고 콘텐츠 선택 없이 eaf 서비스 전환형과 벤치마크 구조 차용을 바로 생성합니다.")
 
-    refs = load_references()
-    if refs.empty:
-        st.warning("먼저 URL 자동 수집 또는 YouTube 영상 내용 분석에서 참고 콘텐츠를 저장하세요.")
-        return
-
-    options = {f"{row['id']} · {clean(row['title'])}": row for _, row in refs.iterrows()}
-    selected_key = st.selectbox("참고 콘텐츠", list(options.keys()))
-    row = options[selected_key]
-    analysis = analyze_source(row)
-
-    with st.expander("원본 분석 레이어 보기", expanded=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write(f"**원본 제목:** {analysis['original_title']}")
-            st.write(f"**원본 주제:** {analysis['original_topic']}")
-            st.write(f"**원본 주장:** {analysis['original_claim']}")
-        with c2:
-            st.write(f"**독자 문제:** {analysis['audience_pain']}")
-            st.write(f"**차용할 구조:** {analysis['transferable_structure']}")
-            st.write(f"**eaf 전환 각도:** {analysis['eaf_angle']}")
-        if analysis["source_is_unrelated_to_eaf"]:
-            st.warning("이 원본은 영상 제작/eaf 서비스 주제와 직접 관련이 약합니다. '원본 주제 카드뉴스형' 또는 '벤치마크 구조만 차용'이 더 안전합니다.")
-
-    st.markdown("---")
     st.markdown("### 생성 조건")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        default_plan_idx = 1 if analysis["source_is_unrelated_to_eaf"] else 0
-        plan_type = st.selectbox("콘텐츠 목적", PLAN_TYPES, index=default_plan_idx)
+        plan_type = st.selectbox("콘텐츠 목적", PLAN_TYPES, index=0)
     with c2:
         template = st.selectbox("콘텐츠 구조", TEMPLATE_OPTIONS, index=0)
     with c3:
@@ -583,17 +425,13 @@ def main():
         cta, cta_label = select_from_dict("CTA", CTA_PRESETS, "v5_cta_preset", "DM 포트폴리오/견적")
     with c6:
         if plan_type == "eaf 서비스 전환형":
-            angle_default = "좋은 영상과 문의로 이어지는 영상의 차이"
-            angle = st.text_input("이번 카드뉴스의 핵심 각도", value=angle_default)
+            angle = st.text_input("이번 카드뉴스의 핵심 각도", value="좋은 영상과 문의로 이어지는 영상의 차이")
             problem, problem_label = select_from_dict("핵심 문제", SERVICE_PROBLEMS, "v5_service_problem", "전환 경로 부재")
-        elif plan_type == "원본 주제 카드뉴스형":
-            angle = st.text_input("이번 카드뉴스의 핵심 각도", value=analysis["generic_angle"])
-            problem, problem_label = select_from_dict("핵심 문제", GENERIC_PROBLEMS, "v5_generic_problem", "시장 기대감만 보고 판단")
+            benchmark_structure = ""
         else:
             angle = st.text_input("이번 카드뉴스의 핵심 각도", value="레퍼런스 구조를 콘텐츠로 바꾸는 법")
-            problem = analysis["audience_pain"]
-            problem_label = "원본 분석 기반"
-            st.text_area("핵심 문제", value=problem, height=80, disabled=True)
+            benchmark_structure, problem_label = select_from_dict("차용할 벤치마크 구조", BENCHMARK_STRUCTURES, "v5_benchmark_structure", "후킹 질문형")
+            problem = "겉모습을 따라 하기보다 반응을 만든 전개 순서를 읽어야 하는 상황"
 
     p1, p2 = st.columns(2)
     with p1:
@@ -601,8 +439,8 @@ def main():
         proof, proof_label = select_from_dict("근거 / 설명", PROOFS, "v5_proof", "문의 흐름 명확화")
     with p2:
         offer, offer_label = select_from_dict("서비스 / 제안 문장", OFFERS, "v5_offer", "브랜드/제품/유튜브 통합")
-        if plan_type != "eaf 서비스 전환형":
-            st.info("원본 주제형에서는 서비스 문장이 마지막 CTA에만 약하게 반영됩니다.")
+        if plan_type == "벤치마크 구조만 차용":
+            st.info("이 모드는 참고 콘텐츠 선택 없이 전개 구조만 선택해 eaf 콘텐츠로 변환합니다.")
 
     ctx = {
         "plan_type": plan_type,
@@ -616,25 +454,15 @@ def main():
         "cta": cta,
         "angle": angle,
         "problem": problem,
-        "generic_problem": problem,
+        "benchmark_structure": benchmark_structure,
         "solution": solution,
         "proof": proof,
         "offer": offer,
-        "analysis": analysis,
     }
 
-    if plan_type == "eaf 서비스 전환형":
-        plan = build_service_plan(ctx)
-    elif plan_type == "원본 주제 카드뉴스형":
-        plan = build_original_topic_plan(ctx)
-    else:
-        plan = build_structure_only_plan(ctx)
+    plan = build_service_plan(ctx) if plan_type == "eaf 서비스 전환형" else build_structure_only_plan(ctx)
 
-    signature = "|".join([
-        str(int(row["id"])), plan_type, template, tone, visual_style, intro_label,
-        brand, target_label, cta_label, angle, problem_label, solution_label, proof_label, offer_label,
-        target, cta, problem, solution, proof, offer,
-    ])
+    signature = "|".join([plan_type, template, tone, visual_style, intro_label, brand, target_label, cta_label, angle, problem_label, benchmark_structure, solution_label, proof_label, offer_label, target, cta, problem, solution, proof, offer])
     update_state(plan, signature)
 
     col_refresh, col_info = st.columns([1, 3])
@@ -643,7 +471,7 @@ def main():
             update_state(plan, signature, force=True)
             st.rerun()
     with col_info:
-        st.info("Title:, URL:, 원본 제목 같은 필드는 카피에 그대로 들어가지 않도록 정화합니다. 이미지 방향은 공통 스타일과 장별 지시를 분리했습니다.")
+        st.info("V5 내부의 참고 콘텐츠 선택 항목을 제거했습니다. 원본 주제 카드뉴스는 별도 메뉴에서 그대로 사용합니다.")
 
     st.markdown("---")
     draft = st.session_state.get("v5_plan", plan)
@@ -651,7 +479,7 @@ def main():
     edited = render_editable(draft, version)
 
     if st.button("이 설계안 저장", type="primary"):
-        save_plan(int(row["id"]), edited)
+        save_plan(edited)
         st.success("카드뉴스 설계안을 저장했습니다.")
 
     st.markdown("---")
