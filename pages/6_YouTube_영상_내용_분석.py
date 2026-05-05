@@ -1,5 +1,6 @@
 import re
 import sqlite3
+import traceback
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -8,6 +9,13 @@ import pandas as pd
 import requests
 import streamlit as st
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import (
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    VideoUnavailable,
+    RequestBlocked,
+    IpBlocked,
+)
 
 DB_PATH = Path("eafi_benchmark.db")
 HEADERS = {
@@ -93,7 +101,7 @@ def clean(value, fallback=""):
 
 
 def get_video_id(url):
-    url = url.strip()
+    url = clean(url)
     parsed = urlparse(url)
     host = parsed.netloc.lower().replace("www.", "")
     if host == "youtu.be":
@@ -120,31 +128,104 @@ def fetch_oembed(url):
         return "YouTube 영상", "YouTube"
 
 
-def fetch_transcript(video_id, languages):
-    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-    transcript = None
+def list_available_transcripts(video_id):
+    ytt_api = YouTubeTranscriptApi()
+    transcript_list = ytt_api.list(video_id)
+    rows = []
+    for transcript in transcript_list:
+        rows.append({
+            "language": getattr(transcript, "language", ""),
+            "language_code": getattr(transcript, "language_code", ""),
+            "is_generated": getattr(transcript, "is_generated", ""),
+            "is_translatable": getattr(transcript, "is_translatable", ""),
+        })
+    return rows
 
-    for lang in languages:
+
+def fetched_transcript_to_text(fetched):
+    if hasattr(fetched, "to_raw_data"):
+        rows = fetched.to_raw_data()
+    else:
+        rows = fetched
+
+    parts = []
+    for row in rows:
+        if isinstance(row, dict):
+            text = row.get("text", "")
+        else:
+            text = getattr(row, "text", "")
+        text = clean(text).replace("\n", " ")
+        if text:
+            parts.append(text)
+    return re.sub(r"\s+", " ", " ".join(parts)).strip()
+
+
+def fetch_transcript(video_id, languages):
+    languages = languages or ["ko", "en"]
+    ytt_api = YouTubeTranscriptApi()
+    debug = {
+        "method": "",
+        "available_transcripts": [],
+        "error_stage": "",
+        "error_message": "",
+    }
+
+    try:
+        debug["method"] = "YouTubeTranscriptApi().fetch(video_id, languages=...)"
+        fetched = ytt_api.fetch(video_id, languages=languages)
+        text = fetched_transcript_to_text(fetched)
+        if text:
+            return text, debug
+    except Exception as first_error:
+        debug["error_stage"] = "direct_fetch_failed"
+        debug["error_message"] = repr(first_error)
+
+    try:
+        debug["method"] = "YouTubeTranscriptApi().list(video_id) fallback"
+        transcript_list = ytt_api.list(video_id)
+        debug["available_transcripts"] = [
+            {
+                "language": getattr(t, "language", ""),
+                "language_code": getattr(t, "language_code", ""),
+                "is_generated": getattr(t, "is_generated", ""),
+                "is_translatable": getattr(t, "is_translatable", ""),
+            }
+            for t in transcript_list
+        ]
+
+        transcript = None
         try:
-            transcript = transcript_list.find_transcript([lang])
-            break
+            transcript = transcript_list.find_transcript(languages)
         except Exception:
             pass
 
-    if transcript is None:
-        try:
-            transcript = transcript_list.find_generated_transcript(languages)
-        except Exception:
-            available = [t.language_code for t in transcript_list]
-            if available:
-                transcript = transcript_list.find_transcript([available[0]])
-            else:
-                raise ValueError("사용 가능한 자막을 찾지 못했습니다.")
+        if transcript is None:
+            try:
+                transcript = transcript_list.find_generated_transcript(languages)
+            except Exception:
+                pass
 
-    rows = transcript.fetch()
-    text = " ".join([clean(row.get("text", "")).replace("\n", " ") for row in rows])
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+        if transcript is None:
+            available_codes = [item["language_code"] for item in debug["available_transcripts"] if item.get("language_code")]
+            if available_codes:
+                transcript = transcript_list.find_transcript([available_codes[0]])
+            else:
+                raise ValueError("사용 가능한 자막 목록이 비어 있습니다.")
+
+        fetched = transcript.fetch()
+        text = fetched_transcript_to_text(fetched)
+        if not text:
+            raise ValueError("자막 객체는 가져왔지만 text 필드가 비어 있습니다.")
+        return text, debug
+
+    except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable, RequestBlocked, IpBlocked) as known_error:
+        debug["error_stage"] = "known_transcript_error"
+        debug["error_message"] = repr(known_error)
+        raise
+    except Exception as fallback_error:
+        debug["error_stage"] = "fallback_failed"
+        debug["error_message"] = repr(fallback_error)
+        raise
 
 
 def split_sentences(text):
@@ -168,9 +249,10 @@ def extract_keywords(text, topn=12):
 def pick_sentences(text, keywords, limit=5):
     sentences = split_sentences(text)
     scored = []
-    for sentence in sentences:
+    for idx, sentence in enumerate(sentences):
         score = sum(1 for kw in keywords if kw in sentence.lower())
-        score += 1 if any(token in sentence for token in ["문제", "이유", "중요", "핵심", "방법", "먼저", "결국", "하지만", "그래서"]) else 0
+        score += 2 if any(token in sentence for token in ["문제", "이유", "중요", "핵심", "방법", "먼저", "결국", "하지만", "그래서"]) else 0
+        score += max(0, 3 - idx * 0.03)
         scored.append((score, sentence))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [s for score, s in scored[:limit] if score > 0] or sentences[:limit]
@@ -190,17 +272,15 @@ def infer_structure(text):
 def analyze_transcript(title, channel_name, transcript):
     keywords = extract_keywords(transcript)
     key_sentences = pick_sentences(transcript, keywords, limit=6)
-    summary = "\n".join([f"- {s[:180]}" for s in key_sentences[:5]])
+    summary = "\n".join([f"- {s[:220]}" for s in key_sentences[:5]])
 
-    hook_candidates = [s for s in split_sentences(transcript)[:20] if len(s) < 140]
+    opening_sentences = split_sentences(transcript)[:12]
+    hook_candidates = [s for s in opening_sentences if 20 <= len(s) <= 160]
     hook_point = hook_candidates[0] if hook_candidates else title
-    if len(hook_point) > 120:
-        hook_point = title
 
     structure_note = infer_structure(transcript)
     visual_note = "원본 영상의 썸네일, 도입부 화면, 주요 예시 장면, 전환 장면을 카드뉴스 이미지 구조로 재해석"
     keyword_text = ", ".join(keywords)
-
     eafi_application = f"{title}의 핵심 흐름을 eaf: 관점에서 '영상 제작 전 반드시 봐야 할 구조' 카드뉴스로 변환"
 
     return {
@@ -286,15 +366,67 @@ def load_recent_analyses():
     return df
 
 
+def build_payload_from_transcript(video_id, normalized_url, title, channel_name, transcript, scores, debug=None):
+    analysis = analyze_transcript(title, channel_name, transcript)
+    return {
+        "video_id": video_id,
+        "url": normalized_url,
+        "title": title,
+        "channel_name": channel_name,
+        "transcript": transcript,
+        "analysis": analysis,
+        "scores": scores,
+        "debug": debug or {},
+    }
+
+
+def render_payload(payload):
+    st.markdown("### 분석 결과")
+    st.write(f"**제목:** {payload['title']}")
+    st.write(f"**채널:** {payload['channel_name']}")
+    st.write(f"**video_id:** {payload['video_id']}")
+    st.write(f"**자막 길이:** {len(payload['transcript']):,}자")
+    st.write(f"**키워드:** {payload['analysis']['keywords']}")
+
+    if payload.get("debug"):
+        with st.expander("진단 로그 보기"):
+            st.json(payload["debug"])
+
+    st.markdown("#### 핵심 요약")
+    st.text_area("요약", value=payload["analysis"]["summary"], height=170)
+    st.markdown("#### 후킹 포인트")
+    st.text_area("후킹 포인트", value=payload["analysis"]["hook_point"], height=90)
+    st.markdown("#### 전개 구조")
+    st.text_area("전개 구조", value=payload["analysis"]["structure_note"], height=90)
+    st.markdown("#### eaf: 적용 아이디어")
+    st.text_area("적용 아이디어", value=payload["analysis"]["eafi_application"], height=90)
+    with st.expander("전체 자막 보기"):
+        st.text_area("Transcript", value=payload["transcript"], height=340)
+
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        if st.button("분석 결과 저장"):
+            save_analysis(payload["video_id"], payload["url"], payload["title"], payload["channel_name"], payload["transcript"], payload["analysis"])
+            st.success("영상 분석 결과를 저장했습니다.")
+    with col_b:
+        if st.button("참고 콘텐츠 DB로 저장"):
+            save_analysis(payload["video_id"], payload["url"], payload["title"], payload["channel_name"], payload["transcript"], payload["analysis"])
+            convert_to_reference(payload["url"], payload["title"], payload["channel_name"], payload["analysis"], payload["scores"])
+            st.success("영상 분석 결과를 참고 콘텐츠 DB로 저장했습니다.")
+    with col_c:
+        if st.button("초기화"):
+            st.session_state.pop("yt_analysis_payload", None)
+            st.rerun()
+
+
 def main():
     st.set_page_config(page_title="YouTube 영상 내용 분석", page_icon="🎬", layout="wide")
     init_tables()
 
     st.title("🎬 YouTube 영상 내용 분석")
-    st.caption("YouTube 링크에서 자막/스크립트를 가져와 영상 내용을 분석하고, 카드뉴스용 원본 데이터로 저장합니다.")
+    st.caption("YouTube 자막/스크립트를 가져와 영상 내용을 분석하고 카드뉴스용 원본 데이터로 저장합니다.")
 
-    url = st.text_input("YouTube URL 또는 video_id", placeholder="https://www.youtube.com/watch?v=... 또는 https://youtube.com/shorts/...")
-    langs = st.multiselect("자막 우선순위", ["ko", "en", "ja", "es", "de", "fr"], default=["ko", "en"])
+    mode = st.radio("분석 방식", ["YouTube 링크로 자막 가져오기", "자막/스크립트 직접 붙여넣기"], horizontal=True)
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
@@ -309,62 +441,69 @@ def main():
         conversion = st.slider("전환", 1, 5, 4)
     scores = {"lead": lead, "visual": visual, "hook": hook, "seo": seo, "conversion": conversion}
 
-    if st.button("자막 가져와서 분석", type="primary"):
-        video_id = get_video_id(url)
-        if not video_id:
-            st.error("YouTube video_id를 찾지 못했습니다. URL을 확인하세요.")
-            return
-        normalized_url = f"https://www.youtube.com/watch?v={video_id}"
-        try:
-            title, channel_name = fetch_oembed(normalized_url)
-            transcript = fetch_transcript(video_id, langs)
-            analysis = analyze_transcript(title, channel_name, transcript)
-            st.session_state["yt_analysis_payload"] = {
-                "video_id": video_id,
-                "url": normalized_url,
-                "title": title,
-                "channel_name": channel_name,
-                "transcript": transcript,
-                "analysis": analysis,
-                "scores": scores,
-            }
-        except Exception as e:
-            st.error(f"분석 실패: {e}")
-            st.info("자막이 비공개이거나 없는 영상은 분석이 어렵습니다. 이 경우 자막/스크립트를 직접 붙여 넣는 입력 기능을 다음 단계로 추가하는 게 좋습니다.")
+    if mode == "YouTube 링크로 자막 가져오기":
+        url = st.text_input("YouTube URL 또는 video_id", placeholder="https://www.youtube.com/watch?v=... 또는 https://youtube.com/shorts/...")
+        langs = st.multiselect("자막 우선순위", ["ko", "en", "ja", "es", "de", "fr"], default=["ko", "en"])
+
+        if st.button("자막 가져와서 분석", type="primary"):
+            video_id = get_video_id(url)
+            if not video_id:
+                st.error("YouTube video_id를 찾지 못했습니다. URL을 확인하세요.")
+                return
+            normalized_url = f"https://www.youtube.com/watch?v={video_id}"
+            try:
+                title, channel_name = fetch_oembed(normalized_url)
+                transcript, debug = fetch_transcript(video_id, langs)
+                st.session_state["yt_analysis_payload"] = build_payload_from_transcript(
+                    video_id, normalized_url, title, channel_name, transcript, scores, debug
+                )
+                st.success("자막 수집과 분석을 완료했습니다.")
+            except Exception as e:
+                st.error(f"분석 실패: {e}")
+                with st.expander("에러 상세 보기"):
+                    st.code(traceback.format_exc())
+                st.info("자막이 없거나 YouTube가 서버 접근을 막은 경우일 수 있습니다. 아래 '자막/스크립트 직접 붙여넣기' 방식으로 우회할 수 있습니다.")
+
+        if url:
+            video_id = get_video_id(url)
+            if st.button("사용 가능한 자막 목록만 확인"):
+                if not video_id:
+                    st.error("video_id를 찾지 못했습니다.")
+                else:
+                    try:
+                        rows = list_available_transcripts(video_id)
+                        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    except Exception as e:
+                        st.error(f"자막 목록 확인 실패: {e}")
+                        with st.expander("에러 상세 보기"):
+                            st.code(traceback.format_exc())
+
+    else:
+        manual_url = st.text_input("원본 YouTube URL 또는 video_id", placeholder="선택 입력")
+        manual_title = st.text_input("영상 제목", value="직접 입력한 영상 스크립트")
+        manual_channel = st.text_input("채널명", value="Manual Input")
+        transcript = st.text_area("자막/스크립트 붙여넣기", height=360, placeholder="YouTube 자막, Whisper 전사, NotebookLM 요약 전 원문 등을 붙여넣으세요.")
+        if st.button("붙여넣은 스크립트 분석", type="primary"):
+            if len(clean(transcript)) < 80:
+                st.error("분석할 스크립트가 너무 짧습니다. 최소 80자 이상 붙여넣으세요.")
+            else:
+                video_id = get_video_id(manual_url) or "manual"
+                normalized_url = f"https://www.youtube.com/watch?v={video_id}" if video_id != "manual" else clean(manual_url, "manual")
+                st.session_state["yt_analysis_payload"] = build_payload_from_transcript(
+                    video_id,
+                    normalized_url,
+                    manual_title,
+                    manual_channel,
+                    transcript,
+                    scores,
+                    {"method": "manual_paste", "transcript_length": len(transcript)},
+                )
+                st.success("붙여넣은 스크립트를 분석했습니다.")
 
     payload = st.session_state.get("yt_analysis_payload")
     if payload:
         st.markdown("---")
-        st.markdown("### 분석 결과")
-        st.write(f"**제목:** {payload['title']}")
-        st.write(f"**채널:** {payload['channel_name']}")
-        st.write(f"**video_id:** {payload['video_id']}")
-        st.write(f"**키워드:** {payload['analysis']['keywords']}")
-        st.markdown("#### 핵심 요약")
-        st.text_area("요약", value=payload["analysis"]["summary"], height=160)
-        st.markdown("#### 후킹 포인트")
-        st.text_area("후킹 포인트", value=payload["analysis"]["hook_point"], height=90)
-        st.markdown("#### 전개 구조")
-        st.text_area("전개 구조", value=payload["analysis"]["structure_note"], height=90)
-        st.markdown("#### eaf: 적용 아이디어")
-        st.text_area("적용 아이디어", value=payload["analysis"]["eafi_application"], height=90)
-        with st.expander("전체 자막 보기"):
-            st.text_area("Transcript", value=payload["transcript"], height=320)
-
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            if st.button("분석 결과 저장"):
-                save_analysis(payload["video_id"], payload["url"], payload["title"], payload["channel_name"], payload["transcript"], payload["analysis"])
-                st.success("영상 분석 결과를 저장했습니다.")
-        with col_b:
-            if st.button("참고 콘텐츠 DB로 저장"):
-                save_analysis(payload["video_id"], payload["url"], payload["title"], payload["channel_name"], payload["transcript"], payload["analysis"])
-                convert_to_reference(payload["url"], payload["title"], payload["channel_name"], payload["analysis"], payload["scores"])
-                st.success("영상 분석 결과를 참고 콘텐츠 DB로 저장했습니다.")
-        with col_c:
-            if st.button("초기화"):
-                st.session_state.pop("yt_analysis_payload", None)
-                st.rerun()
+        render_payload(payload)
 
     st.markdown("---")
     st.markdown("### 최근 영상 분석 기록")
