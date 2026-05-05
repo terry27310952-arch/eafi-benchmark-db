@@ -16,9 +16,21 @@ CONTENT_GOALS = ["원본 내용 깊이 분석", "카드뉴스 원천 데이터�
 PLATFORM_FOCUS = ["인스타 카드뉴스", "유튜브 커뮤니티", "블로그", "쓰레드", "틱톡/숏폼", "범용"]
 ANALYSIS_DEPTH = ["핵심만", "구조 분석", "세부 근거까지", "전환 관점", "후킹/바이럴 관점"]
 IMAGE_RATIOS = ["1:1", "16:9", "9:16", "4:3"]
-IMAGE_STYLES = ["깔끔한 인포그래픽", "실사 시네마틱", "3D 애니메이션", "2D 일러스트", "웹툰/만화형", "미니멀 타이포그래피", "뉴스 에디토리얼", "데이터 대시보드", "프리미엄 브랜드룩", "AI 혼합 콜라주"]
+IMAGE_STYLES = [
+    "깔끔한 인포그래픽",
+    "실사 시네마틱",
+    "3D 애니메이션",
+    "2D 일러스트",
+    "웹툰/만화형",
+    "미니멀 타이포그래피",
+    "뉴스 에디토리얼",
+    "데이터 대시보드",
+    "프리미엄 브랜드룩",
+    "AI 혼합 콜라주",
+]
 
 CTA_PRESETS = {
+    "자동 맥락형 엔딩": "__AUTO_CONTEXT__",
     "저장 유도": "이 기준은 저장해두고 다시 확인해보세요",
     "댓글 유도": "여러분은 이 이야기를 어떻게 보시나요? 댓글로 남겨주세요",
     "공유 유도": "이 이야기가 필요한 분에게 공유해보세요",
@@ -67,9 +79,15 @@ VISUAL_STYLES = {
     "AI 혼합 콜라주": "AI mixed media collage, realistic elements with graphic overlays, modern editorial texture",
 }
 
-RATIO_PROMPTS = {"1:1": "square 1:1 composition", "16:9": "wide 16:9 horizontal composition", "9:16": "vertical 9:16 mobile story composition", "4:3": "classic 4:3 editorial composition"}
-GENERIC_CTA_LEAKS = ["이 기준은 저장해두고 다시 확인해보세요", "저장해두고 다시 확인해보세요", "이 기준이 필요했다면"]
-COPY_LEAKS = ["첫 번째 단서", "결론만 보면", "과정이 중요한 이야기입니다", "겉으로 보이는 결과", "사람들이 놓치기 쉬운 건"]
+RATIO_PROMPTS = {
+    "1:1": "square 1:1 composition",
+    "16:9": "wide 16:9 horizontal composition",
+    "9:16": "vertical 9:16 mobile story composition",
+    "4:3": "classic 4:3 editorial composition",
+}
+
+GENERIC_CTA_LEAKS = ["__AUTO_CONTEXT__", "이 기준은 저장해두고 다시 확인해보세요", "저장해두고 다시 확인해보세요", "이 기준이 필요했다면"]
+LABEL_WORDS = ["헤드카피", "바디카피", "카피", "장면 방향", "이미지 생성 프롬프트"]
 
 
 def connect_db():
@@ -151,17 +169,11 @@ def strip_meta(text):
     text = re.sub(r"https?://\S+", "", text)
     text = re.sub(r"\[[sS]?\d+\]", "", text)
     text = re.sub(r"[\"“”']", "", text)
+    for label in LABEL_WORDS:
+        text = re.sub(rf"(?im)^\s*{re.escape(label)}\s*$", "", text)
+        text = re.sub(rf"(?im)^\s*{re.escape(label)}\s*[:：]\s*", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
-
-
-def shorten(text, max_len=110):
-    text = strip_meta(text)
-    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
-
-
-def compact_lines(text):
-    return "\n".join([line.strip() for line in clean(text).splitlines() if line.strip()])
 
 
 def normalize_sentence(text):
@@ -171,10 +183,19 @@ def normalize_sentence(text):
     return text
 
 
+def shorten(text, max_len=110):
+    text = strip_meta(text)
+    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
+
+
 def split_source_sentences(text):
     text = strip_meta(text)
     parts = re.split(r"(?<=[.!?。！？])\s+|(?<=다)\s+|(?<=요)\s+|(?<=죠)\s+", text)
     return [normalize_sentence(p) for p in parts if len(normalize_sentence(p)) > 12]
+
+
+def compact_lines(text):
+    return "\n".join([line.strip() for line in clean(text).splitlines() if line.strip()])
 
 
 def has_any(text, words):
@@ -183,7 +204,14 @@ def has_any(text, words):
 
 def polish(text, tone="명확"):
     text = compact_lines(text)
-    replacements = {"합니다입니다": "합니다", "쉽습니다입니다": "쉽습니다", "중요합니다입니다": "중요합니다", "진짜": "정말", "없으면": "없다면", "~": ""}
+    replacements = {
+        "합니다입니다": "합니다",
+        "쉽습니다입니다": "쉽습니다",
+        "중요합니다입니다": "중요합니다",
+        "진짜": "정말",
+        "없으면": "없다면",
+        "~": "",
+    }
     for old, new in replacements.items():
         text = text.replace(old, new)
     if tone == "담백":
@@ -193,12 +221,14 @@ def polish(text, tone="명확"):
     return text.strip()
 
 
-def make_copy(headline, body=""):
-    headline = compact_lines(headline)
-    body = compact_lines(body)
-    if body:
-        return f"헤드카피\n{headline}\n\n바디카피\n{body}"
-    return f"헤드카피\n{headline}"
+def make_card(headline, body=""):
+    return {"headline": compact_lines(headline), "body": compact_lines(body)}
+
+
+def combine_card(card):
+    headline = compact_lines(card.get("headline", ""))
+    body = compact_lines(card.get("body", ""))
+    return f"{headline}\n\n{body}" if body else headline
 
 
 def selected_cta_is_generic(cta):
@@ -261,7 +291,13 @@ def load_references():
     if not dfs:
         return pd.DataFrame()
     df = pd.concat(dfs, ignore_index=True, sort=False)
-    required = ["source_kind", "event_type", "original_topic", "main_topic_sentence", "primary_claim", "actor_map", "event_timeline", "cardnews_seed", "interpretation_slots", "contradiction_or_tension", "hidden_assumption", "emotional_trigger", "viral_hook_logic", "reusable_structure", "source_grounded_qa", "evidence_points", "cause_effect_chain", "audience_pain", "keywords", "summary", "transcript", "interpretation_report"]
+    required = [
+        "source_kind", "event_type", "original_topic", "main_topic_sentence", "primary_claim", "actor_map",
+        "event_timeline", "cardnews_seed", "interpretation_slots", "contradiction_or_tension",
+        "hidden_assumption", "emotional_trigger", "viral_hook_logic", "reusable_structure",
+        "source_grounded_qa", "evidence_points", "cause_effect_chain", "audience_pain", "keywords",
+        "summary", "transcript", "interpretation_report",
+    ]
     for col in required:
         if col not in df.columns:
             df[col] = ""
@@ -424,71 +460,52 @@ def resolve_auto_problem(value, analysis):
     return analysis["audience_problem"]
 
 
-def build_samsung_slides(a, selected_cta):
+def build_samsung_cards(a, selected_cta):
     facts = a["facts"]
     demand_raw = fact_text(facts, ["15%", "성과급", "영업 이익", "영업이익"], "노조는 회사가 벌어들인 이익 일부를 성과급으로 돌려달라고 요구했습니다")
     amount_raw = fact_text(facts, ["45조"], "요구 규모가 거대한 숫자로 읽히면서 논쟁은 단순한 보너스 문제를 넘어섰습니다")
     response_raw = fact_text(facts, ["플러그", "전원", "폐쇄", "가전라인"], "회사는 생산라인 중단까지 거론하는 강경한 방식으로 맞섰습니다")
     outside_raw = fact_text(facts, ["파업", "93%", "찬성", "정부", "주무부처", "70%", "경쟁력"], "갈등은 파업과 여론전, 산업 경쟁력 논쟁으로 번졌습니다")
     close = contextual_ending(a, selected_cta)
-
     return [
-        make_copy(
-            "삼성은 왜\n가전라인 폐쇄까지 꺼냈을까요?",
-            "겉으로는 노사 갈등처럼 보이지만, 안쪽에는 성과급과 미래 투자라는 더 큰 충돌이 있었습니다."
-        ),
-        make_copy(
-            "출발점은 성과급이었습니다",
-            f"노조의 요구는 단순한 격려금이 아니었습니다. {shorten(demand_raw, 92)}"
-        ),
-        make_copy(
-            "문제는 숫자가 너무 컸다는 겁니다",
-            f"회사가 보기엔 이 요구가 미래 투자 재원을 흔드는 문제로 보였습니다. {shorten(amount_raw, 92)}"
-        ),
-        make_copy(
-            "그래서 삼성은 강하게 맞섰습니다",
-            f"회사는 더 이상 양보의 문제가 아니라고 판단했습니다. {shorten(response_raw, 92)}"
-        ),
-        make_copy(
-            "갈등은 회사 밖으로 번졌습니다",
-            f"이제 쟁점은 직원 보상을 넘어 파업, 여론, 산업 경쟁력 문제로 커졌습니다. {shorten(outside_raw, 92)}"
-        ),
-        make_copy(
-            "결국 질문은 하나입니다",
-            close
-        ),
+        make_card("삼성은 왜\n가전라인 폐쇄까지 꺼냈을까요?", "겉으로는 노사 갈등처럼 보이지만, 안쪽에는 성과급과 미래 투자라는 더 큰 충돌이 있었습니다."),
+        make_card("출발점은 성과급이었습니다", f"노조의 요구는 단순한 격려금이 아니었습니다. {shorten(demand_raw, 92)}"),
+        make_card("문제는 숫자가 너무 컸다는 겁니다", f"회사가 보기엔 이 요구가 미래 투자 재원을 흔드는 문제로 보였습니다. {shorten(amount_raw, 92)}"),
+        make_card("삼성은 양보 대신\n강경한 경고를 택했습니다", f"회사는 더 이상 단순 협상으로 볼 수 없다고 판단했습니다. {shorten(response_raw, 92)}"),
+        make_card("갈등은 회사 밖으로 번졌습니다", f"이제 쟁점은 직원 보상을 넘어 파업, 여론, 산업 경쟁력 문제로 커졌습니다. {shorten(outside_raw, 92)}"),
+        make_card("결국 질문은 하나입니다", close),
     ]
 
 
-def build_park_slides(a, selected_cta):
+def build_park_cards(a, selected_cta):
     facts = a["facts"]
     park = fact_text(facts, ["공원", "주차장", "시민"], "지금은 시민들이 이용하는 평화로운 공간으로 남아 있습니다")
     donation = fact_text(facts, ["기증", "부지"], "이 공간은 기업의 부지 기증에서 시작됐습니다")
     union = fact_text(facts, ["노조", "반발", "직원"], "하지만 내부에서는 직원과 노조의 반발도 있었습니다")
     close = contextual_ending(a, selected_cta)
     return [
-        make_copy("아름다운 공원에도\n숨은 이야기가 있습니다", "지금 보이는 풍경만으로는 이 공간이 지나온 갈등을 다 설명할 수 없습니다."),
-        make_copy("지금은 평화로운 공간입니다", shorten(park, 105)),
-        make_copy("하지만 시작은 기부였습니다", shorten(donation, 105)),
-        make_copy("그 과정이 모두 평화롭진 않았습니다", shorten(union, 105)),
-        make_copy("핵심은 결과와 과정의 충돌입니다", shorten(a["conflict"], 105)),
-        make_copy("이 이야기를 다시 본다면", close),
+        make_card("아름다운 공원에도\n숨은 이야기가 있습니다", "지금 보이는 풍경만으로는 이 공간이 지나온 갈등을 다 설명할 수 없습니다."),
+        make_card("지금은 평화로운 공간입니다", shorten(park, 105)),
+        make_card("하지만 시작은 기부였습니다", shorten(donation, 105)),
+        make_card("그 과정이 모두\n평화롭진 않았습니다", shorten(union, 105)),
+        make_card("핵심은 결과와 과정의 충돌입니다", shorten(a["conflict"], 105)),
+        make_card("이 이야기를 다시 본다면", close),
     ]
 
 
-def build_general_event_slides(a, selected_cta):
+def build_general_event_cards(a, selected_cta):
     facts = a["facts"]
     close = contextual_ending(a, selected_cta)
     fact1 = facts[0] if facts else a["primary_claim"]
     fact2 = facts[1] if len(facts) > 1 else a["conflict"]
     fact3 = facts[2] if len(facts) > 2 else a["hidden_assumption"]
     return [
-        make_copy(f"{shorten(a['topic'], 28)}\n결론만으로는 부족합니다", "이 사건은 결과보다 그 결과가 만들어진 조건을 먼저 봐야 합니다."),
-        make_copy("먼저 봐야 할 단서", shorten(fact1, 105)),
-        make_copy("이해관계는 여기서 갈립니다", shorten(a["conflict"], 105)),
-        make_copy("핵심은 요구와 대응입니다", shorten(fact2, 105)),
-        make_copy("놓치면 안 되는 전제", shorten(fact3, 105)),
-        make_copy("마지막 질문", close),
+        make_card(f"{shorten(a['topic'], 28)}\n결론만으로는 부족합니다", "이 사건은 결과보다 그 결과가 만들어진 조건을 먼저 봐야 합니다."),
+        make_card("먼저 봐야 할 단서", shorten(fact1, 105)),
+        make_card("이해관계는 여기서 갈립니다", shorten(a["conflict"], 105)),
+        make_card("핵심은 요구와 대응입니다", shorten(fact2, 105)),
+        make_card("놓치면 안 되는 전제", shorten(fact3, 105)),
+        make_card("마지막 질문", close),
     ]
 
 
@@ -496,7 +513,7 @@ def build_slot_based_event_plan(ctx):
     a = ctx["analysis"]
     cta = ctx["cta"]
     if a["event_type"] == "samsung_labor":
-        slides = build_samsung_slides(a, cta)
+        cards = build_samsung_cards(a, cta)
         directions = [
             "삼성 반도체 또는 가전 생산라인을 배경으로 회사와 직원이 대치하는 뉴스형 첫 장.",
             "성과급 요구와 영업이익 15% 같은 숫자가 크게 보이는 계산서형 인포그래픽.",
@@ -506,7 +523,7 @@ def build_slot_based_event_plan(ctx):
             "돈다발과 반도체 웨이퍼가 양쪽에 놓이고 중앙에 질문이 남는 마무리 장면.",
         ]
     elif a["event_type"] == "park_donation":
-        slides = build_park_slides(a, cta)
+        cards = build_park_cards(a, cta)
         directions = [
             "평화로운 도심 공원 위에 과거 공장 실루엣이 희미하게 겹쳐진 첫 장.",
             "공원과 지하 주차장, 시민의 일상이 보이는 밝은 장면.",
@@ -516,7 +533,7 @@ def build_slot_based_event_plan(ctx):
             "공원 벤치 위에 질문 하나가 남는 조용한 마무리 장면.",
         ]
     else:
-        slides = build_general_event_slides(a, cta)
+        cards = build_general_event_cards(a, cta)
         directions = [
             "사건의 가장 강한 장면을 크게 보여주는 뉴스형 첫 장.",
             "첫 번째 단서가 되는 숫자나 발언을 자료처럼 보여주는 장면.",
@@ -525,8 +542,8 @@ def build_slot_based_event_plan(ctx):
             "독자가 놓친 전제를 돋보기로 찾아내는 장면.",
             "질문을 남기는 여백 중심의 마무리 카드.",
         ]
-    prompts = build_prompts(ctx, directions, slides)
-    return finalize_plan(ctx, f"[사건형] {shorten(a['topic'], 44)}", a["audience_problem"], slides, directions, prompts)
+    prompts = build_prompts(ctx, directions, cards)
+    return finalize_plan(ctx, f"[사건형] {shorten(a['topic'], 44)}", a["audience_problem"], cards, directions, prompts)
 
 
 def build_generic_plan(ctx):
@@ -535,13 +552,13 @@ def build_generic_plan(ctx):
     close = contextual_ending(a, ctx["cta"])
     topic = a["topic"]
     fact1 = facts[0] if facts else a["primary_claim"]
-    slides = [
-        make_copy(f"{shorten(topic, 28)}\n먼저 봐야 할 기준이 있습니다", "결론보다 중요한 건 이 이야기를 움직인 조건입니다."),
-        make_copy("핵심 단서", shorten(fact1, 105)),
-        make_copy("사람들이 놓치는 지점", shorten(a["audience_problem"], 105)),
-        make_copy("판단 기준", shorten(a["conflict"], 105)),
-        make_copy("정리하면", shorten(a["reusable_structure"], 105)),
-        make_copy("마지막 질문", close),
+    cards = [
+        make_card(f"{shorten(topic, 28)}\n먼저 봐야 할 기준이 있습니다", "결론보다 중요한 건 이 이야기를 움직인 조건입니다."),
+        make_card("핵심 단서", shorten(fact1, 105)),
+        make_card("사람들이 놓치는 지점", shorten(a["audience_problem"], 105)),
+        make_card("판단 기준", shorten(a["conflict"], 105)),
+        make_card("정리하면", shorten(a["reusable_structure"], 105)),
+        make_card("마지막 질문", close),
     ]
     directions = [
         "원본 주제를 상징하는 첫 장. 큰 오브젝트와 짧은 문장으로 초반 주목도를 만드는 구성.",
@@ -549,26 +566,45 @@ def build_generic_plan(ctx):
         "독자가 놓치기 쉬운 문제를 시각화. 잘못된 판단과 올바른 판단 기준을 대비.",
         "판단 기준을 분석하는 장면. 원인, 배경, 체크포인트를 3갈래로 정리.",
         "재사용 가능한 구조를 보여주는 카드. 흐름도가 한눈에 보이게 구성.",
-        "저장, 공유, 댓글 같은 행동을 유도하는 마무리 카드.",
+        "질문을 남기는 여백 중심의 마무리 카드.",
     ]
-    prompts = build_prompts(ctx, directions, slides)
-    return finalize_plan(ctx, f"[원본 주제] {shorten(topic, 44)}", a["audience_problem"], slides, directions, prompts)
+    prompts = build_prompts(ctx, directions, cards)
+    return finalize_plan(ctx, f"[원본 주제] {shorten(topic, 44)}", a["audience_problem"], cards, directions, prompts)
 
 
-def build_prompts(ctx, directions, slides):
+def copy_text_for_image(card):
+    headline = strip_meta(card.get("headline", ""))
+    body = strip_meta(card.get("body", ""))
+    headline = re.sub(r"\s+", " ", headline.replace("\n", " ")).strip()
+    body = re.sub(r"\s+", " ", body.replace("\n", " ")).strip()
+    for label in LABEL_WORDS:
+        headline = headline.replace(label, "")
+        body = body.replace(label, "")
+    return shorten(headline, 44), shorten(body, 90)
+
+
+def build_prompts(ctx, directions, cards):
     ratio = RATIO_PROMPTS[ctx["image_ratio"]]
     style = VISUAL_STYLES[ctx["image_style"]]
-    copy_rule = "include a short Korean headline, safe margins, clean readable text" if ctx["include_image_copy"] else "clean image only, no text, no captions, no typography, no letters, no watermark, no logo"
     prompts = []
     for idx, direction in enumerate(directions, start=1):
-        copy_hint = shorten(slides[idx - 1].replace("\n", " / "), 90)
-        prompts.append(f"{ratio}, {style}. {direction} Copy intent: {copy_hint}. {copy_rule}")
+        headline, body = copy_text_for_image(cards[idx - 1])
+        if ctx["include_image_copy"]:
+            copy_rule = (
+                f"Render only this Korean headline text if text is needed: '{headline}'. "
+                "Do not render body copy. Do not render the labels '헤드카피', '바디카피', '카피', 'Copy intent', or any field name. "
+                "Use the body copy only as conceptual context for the visual composition."
+            )
+        else:
+            copy_rule = "clean image only, no text, no captions, no typography, no letters, no watermark, no logo"
+        prompts.append(f"{ratio}, {style}. {direction} Body context for composition only: {body}. {copy_rule}")
     return prompts
 
 
-def finalize_plan(ctx, title, main_message, slides, directions, prompts):
+def finalize_plan(ctx, title, main_message, cards, directions, prompts):
     tone = ctx["tone"]
-    slides = [polish(slide, tone) for slide in slides]
+    cards = [{"headline": polish(c.get("headline", ""), tone), "body": polish(c.get("body", ""), tone)} for c in cards]
+    slides = [combine_card(card) for card in cards]
     return {
         "title": polish(title, tone),
         "target_customer": ctx["topic_type"],
@@ -576,6 +612,7 @@ def finalize_plan(ctx, title, main_message, slides, directions, prompts):
         "main_message": polish(main_message, tone),
         "cta": contextual_ending(ctx["analysis"], ctx["cta"]),
         "common_style": ctx["common_style"],
+        "cards": cards,
         "slides": slides,
         "directions": directions,
         "prompts": prompts,
@@ -615,6 +652,18 @@ def update_state(plan, signature, force=False):
         st.session_state["original_topic_version"] = st.session_state.get("original_topic_version", 0) + 1
 
 
+def ensure_cards(plan):
+    if plan.get("cards"):
+        return plan["cards"]
+    cards = []
+    for slide in plan.get("slides", ["", "", "", "", "", ""]):
+        parts = [p.strip() for p in clean(slide).split("\n\n")]
+        headline = parts[0] if parts else ""
+        body = "\n\n".join(parts[1:]) if len(parts) > 1 else ""
+        cards.append(make_card(headline, body))
+    return cards[:6]
+
+
 def render_editable(plan, version):
     suffix = f"v{version}"
     st.markdown("### 공통 이미지 스타일")
@@ -623,17 +672,35 @@ def render_editable(plan, version):
     title = st.text_input("저장할 주제명", value=plan["title"], key=f"ot_title_{suffix}")
     core_problem = st.text_area("핵심 문제", value=plan["core_problem"], height=80, key=f"ot_problem_{suffix}")
     main_message = st.text_area("메인 메시지", value=plan["main_message"], height=90, key=f"ot_message_{suffix}")
-    cta = st.text_input("CTA", value=plan["cta"], key=f"ot_cta_{suffix}")
+    cta = st.text_input("맥락형 엔딩/CTA", value=plan["cta"], key=f"ot_cta_{suffix}")
     st.markdown("### 6장 카드뉴스 구성 직접 수정")
-    slides, directions, prompts = [], [], []
+    cards = ensure_cards(plan)
+    edited_cards, directions, prompts = [], [], []
     for idx in range(6):
+        card = cards[idx] if idx < len(cards) else make_card("", "")
         with st.container(border=True):
             st.markdown(f"#### {idx + 1}장")
-            slides.append(st.text_area("카피", value=plan["slides"][idx], height=150, key=f"ot_slide_{idx}_{suffix}"))
-            directions.append(st.text_area("장면 방향", value=plan["directions"][idx], height=90, key=f"ot_direction_{idx}_{suffix}"))
-            prompts.append(st.text_area("이미지 생성 프롬프트", value=plan["prompts"][idx], height=120, key=f"ot_prompt_{idx}_{suffix}"))
+            headline = st.text_area("헤드카피", value=card.get("headline", ""), height=80, key=f"ot_headline_{idx}_{suffix}")
+            body = st.text_area("바디카피", value=card.get("body", ""), height=110, key=f"ot_body_{idx}_{suffix}")
+            direction = st.text_area("장면 방향", value=plan["directions"][idx], height=90, key=f"ot_direction_{idx}_{suffix}")
+            prompt = st.text_area("이미지 생성 프롬프트", value=plan["prompts"][idx], height=130, key=f"ot_prompt_{idx}_{suffix}")
+            edited_cards.append(make_card(headline, body))
+            directions.append(direction)
+            prompts.append(prompt)
+    slides = [combine_card(card) for card in edited_cards]
     edited = dict(plan)
-    edited.update({"common_style": common_style, "title": title, "core_problem": core_problem, "main_message": main_message, "cta": cta, "slides": slides, "directions": directions, "prompts": prompts, "images": [f"장면 방향:\n{directions[i]}\n\n이미지 생성 프롬프트:\n{prompts[i]}" for i in range(6)]})
+    edited.update({
+        "common_style": common_style,
+        "title": title,
+        "core_problem": core_problem,
+        "main_message": main_message,
+        "cta": cta,
+        "cards": edited_cards,
+        "slides": slides,
+        "directions": directions,
+        "prompts": prompts,
+        "images": [f"장면 방향:\n{directions[i]}\n\n이미지 생성 프롬프트:\n{prompts[i]}" for i in range(6)],
+    })
     return edited
 
 
@@ -641,7 +708,7 @@ def main():
     st.set_page_config(page_title="원본 주제 카드뉴스", page_icon="📰", layout="wide")
     init_table()
     st.title("📰 원본 주제 카드뉴스")
-    st.caption("헤드카피와 바디카피를 분리하고, 사건 맥락에 맞는 엔딩 문구를 자동 생성합니다.")
+    st.caption("헤드카피와 바디카피를 입력창으로 분리하고, 이미지 프롬프트에는 실제 헤드라인만 전달합니다.")
     refs = load_references()
     if refs.empty:
         st.warning("먼저 YouTube 영상 내용 분석에서 원본 해석 결과를 저장하세요.")
@@ -672,7 +739,7 @@ def main():
     with c5:
         emphasis = st.text_input("강조할 관점", placeholder="예: 사건의 아이러니, 갈등 축, 숫자, 당사자 이해관계")
         avoid = st.text_input("제외할 관점", placeholder="예: 과한 투자 조언, 원문 밖 단정, 브랜드명 과다 노출")
-        cta, cta_label = select_from_dict_like("CTA", CTA_PRESETS, "ot_cta_preset", "저장 유도")
+        cta, cta_label = select_from_dict_like("엔딩/CTA", CTA_PRESETS, "ot_cta_preset", "자동 맥락형 엔딩")
 
     st.markdown("### 이미지 생성 조건")
     i1, i2, i3 = st.columns(3)
@@ -681,8 +748,8 @@ def main():
     with i2:
         image_style = st.selectbox("이미지 스타일", IMAGE_STYLES, index=0)
     with i3:
-        include_image_copy = st.checkbox("이미지 안에 카피/텍스트 넣기", value=True)
-        st.caption("끄면 no text / no captions / no watermark 조건이 들어갑니다.")
+        include_image_copy = st.checkbox("이미지 안에 헤드카피만 넣기", value=True)
+        st.caption("바디카피와 '헤드카피/바디카피' 라벨은 이미지 프롬프트에 렌더링 대상으로 들어가지 않습니다.")
 
     base_context = {"content_goal": content_goal, "platform_focus": platform_focus, "analysis_depth": analysis_depth, "target_audience": target_value, "emphasis": emphasis, "avoid": avoid}
     analysis = analyze_source(row, topic_type_select, base_context)
@@ -693,7 +760,7 @@ def main():
     angle = resolve_auto_angle(angle_value, analysis)
     problem = resolve_auto_problem(problem_value, analysis)
     common_style = f"비율: {image_ratio} / 스타일: {image_style} / 사용처: {platform_focus}."
-    common_style += " 이미지 안에 짧은 한글 헤드라인 포함 가능. 안전 여백 확보." if include_image_copy else " 텍스트 없는 클린 이미지. no text, no captions, no typography, no letters, no watermark, no logo."
+    common_style += " 이미지 안에는 짧은 헤드카피만 포함. 바디카피는 디자인 참고용." if include_image_copy else " 텍스트 없는 클린 이미지. no text, no captions, no typography, no letters, no watermark, no logo."
 
     with st.expander("원본 분석 결과", expanded=True):
         st.write(f"**감지된 주제 유형:** {analysis['topic_type']}")
@@ -723,7 +790,7 @@ def main():
             update_state(plan, signature, force=True)
             st.rerun()
     with col_info:
-        st.info("카피는 헤드카피/바디카피로 나뉘며, 6장은 사건 맥락에 맞는 질문형 엔딩으로 자동 조정됩니다.")
+        st.info("이미지 프롬프트에는 '헤드카피/바디카피' 라벨이 들어가지 않고, 렌더링 대상은 짧은 헤드카피로 제한됩니다.")
 
     st.markdown("---")
     draft = st.session_state.get("original_topic_plan", plan)
