@@ -68,6 +68,7 @@ VISUAL_STYLES = {
 }
 
 RATIO_PROMPTS = {"1:1": "square 1:1 composition", "16:9": "wide 16:9 horizontal composition", "9:16": "vertical 9:16 mobile story composition", "4:3": "classic 4:3 editorial composition"}
+COPY_LEAKS = ["첫 번째 단서", "결론만 보면", "과정이 중요한 이야기입니다", "겉으로 보이는 결과", "사람들이 놓치기 쉬운 건"]
 
 
 def connect_db():
@@ -148,6 +149,7 @@ def strip_meta(text):
     text = re.sub(r"(?im)^\s*(title|url|source|link|영상 제목|제목)\s*[:：]\s*", "", text)
     text = re.sub(r"https?://\S+", "", text)
     text = re.sub(r"\[[sS]?\d+\]", "", text)
+    text = re.sub(r"[\"“”']", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -377,6 +379,13 @@ def analyze_source(row, selected_topic_type, context):
     }
 
 
+def fact_text(facts, tokens, fallback):
+    for fact in facts:
+        if has_any(fact, tokens):
+            return fact
+    return fallback
+
+
 def resolve_auto_angle(value, analysis):
     if value and value != "__AUTO__" and value not in ["사건의 뒷면", "문제폭로형", "오해반박형", "체크리스트형", "전후비교형", "바이럴 후킹형"]:
         return value
@@ -393,12 +402,55 @@ def resolve_auto_problem(value, analysis):
     return analysis["audience_problem"]
 
 
+def seed_is_bad(text):
+    text = clean(text)
+    return not text or any(leak in text for leak in COPY_LEAKS) or len(text) > 140
+
+
 def get_seed_slide(slide_seed, idx, fallback):
     if isinstance(slide_seed, dict):
         val = slide_seed.get(f"slide_{idx}") or slide_seed.get(str(idx))
-        if val:
+        if val and not seed_is_bad(val):
             return normalize_sentence(val)
     return fallback
+
+
+def build_samsung_slides(a, cta):
+    facts = a["facts"]
+    has_15 = has_any(" ".join(facts), ["15%", "영업 이익", "영업이익"])
+    has_45 = has_any(" ".join(facts), ["45조"])
+    has_plug = has_any(" ".join(facts), ["플러그", "전원", "폐쇄", "가전라인"])
+    has_strike = has_any(" ".join(facts), ["파업", "93%", "찬성"])
+    has_gov = has_any(" ".join(facts), ["정부", "주무부처", "70%", "경쟁력"])
+
+    demand = "노조는 영업이익 15% 배분을 요구했습니다" if has_15 else shorten(fact_text(facts, ["성과급", "영업 이익", "영업이익"], "성과급 요구가 갈등의 출발점이었습니다"), 82)
+    amount = "요구 규모는 45조라는 숫자까지 커졌습니다" if has_45 else shorten(fact_text(facts, ["45조", "숫자", "규모"], "숫자가 커지면서 단순한 보너스 논쟁을 넘어섰습니다"), 82)
+    response = "가전 생산라인 전원까지 언급하며 맞섰습니다" if has_plug else shorten(fact_text(facts, ["플러그", "전원", "폐쇄", "대답"], "회사는 강경한 방식으로 대응했습니다"), 82)
+    outside = "파업, 정부, 산업 경쟁력 이슈까지 겹쳤습니다" if (has_strike or has_gov) else shorten(fact_text(facts, ["파업", "정부", "경쟁력", "여론"], "갈등은 회사 밖의 여론전으로 번졌습니다"), 82)
+
+    return [
+        "삼성은 왜\n가전라인 폐쇄까지 꺼냈을까요?",
+        f"출발점은 성과급이었습니다\n{demand}",
+        f"숫자는 여기서 커졌습니다\n{amount}",
+        f"삼성의 대답은 강경했습니다\n{response}",
+        f"이제 사내 갈등이 아니었습니다\n{outside}",
+        f"이건 직원 몫의 돈일까요\n회사의 생존 비용일까요?\n{cta}",
+    ]
+
+
+def build_park_slides(a, cta):
+    facts = a["facts"]
+    park = shorten(fact_text(facts, ["공원", "주차장", "시민"], "지금은 시민들이 이용하는 평화로운 공간입니다"), 82)
+    donation = shorten(fact_text(facts, ["기증", "부지"], "이 공간은 기업의 부지 기증에서 시작됐습니다"), 82)
+    union = shorten(fact_text(facts, ["노조", "반발", "직원"], "하지만 내부에서는 직원과 노조의 반발도 있었습니다"), 82)
+    return [
+        "아름다운 공원에도\n숨은 이야기가 있습니다",
+        f"지금은 평화로운 공간입니다\n{park}",
+        f"하지만 시작은 기부였습니다\n{donation}",
+        f"그 과정이 모두 평화롭진 않았습니다\n{union}",
+        f"핵심은 이 충돌입니다\n{shorten(a['conflict'], 86)}",
+        f"미담만 보고 지나쳐도 될까요?\n{cta}",
+    ]
 
 
 def build_slot_based_event_plan(ctx):
@@ -407,18 +459,8 @@ def build_slot_based_event_plan(ctx):
     facts = a["facts"]
     seed = a.get("slide_seed", {})
 
-    slides = [
-        get_seed_slide(seed, 1, f"{shorten(a['topic'], 28)}\n결론만 보면 놓치는 게 있습니다"),
-        get_seed_slide(seed, 2, f"첫 번째 단서\n{shorten(facts[0] if facts else a['primary_claim'], 88)}"),
-        get_seed_slide(seed, 3, f"숫자와 조건이 커졌습니다\n{shorten(facts[1] if len(facts) > 1 else a['conflict'], 88)}"),
-        get_seed_slide(seed, 4, f"갈등은 여기서 터졌습니다\n{shorten(a['conflict'], 88)}"),
-        get_seed_slide(seed, 5, f"사람들이 놓치기 쉬운 건\n{shorten(a['hidden_assumption'], 88)}"),
-        get_seed_slide(seed, 6, f"이 이야기를 어떻게 보시나요?\n{cta}"),
-    ]
-    if cta and cta not in slides[-1]:
-        slides[-1] = f"{slides[-1]}\n{cta}"
-
     if a["event_type"] == "samsung_labor":
+        slides = build_samsung_slides(a, cta)
         directions = [
             "삼성 반도체 또는 가전 생산라인을 배경으로 회사와 직원이 대치하는 뉴스형 첫 장.",
             "성과급 요구와 영업이익 15% 같은 숫자가 크게 보이는 계산서형 인포그래픽.",
@@ -428,6 +470,7 @@ def build_slot_based_event_plan(ctx):
             "돈다발과 반도체 웨이퍼가 양쪽에 놓이고 중앙에 질문이 남는 마무리 장면.",
         ]
     elif a["event_type"] == "park_donation":
+        slides = build_park_slides(a, cta)
         directions = [
             "평화로운 도심 공원 위에 과거 공장 실루엣이 희미하게 겹쳐진 첫 장.",
             "공원과 지하 주차장, 시민의 일상이 보이는 밝은 장면.",
@@ -437,6 +480,14 @@ def build_slot_based_event_plan(ctx):
             "공원 벤치 위에 질문 하나가 남는 조용한 마무리 장면.",
         ]
     else:
+        slides = [
+            get_seed_slide(seed, 1, f"{shorten(a['topic'], 28)}\n결론만으로는 부족합니다"),
+            get_seed_slide(seed, 2, f"먼저 봐야 할 단서\n{shorten(facts[0] if facts else a['primary_claim'], 88)}"),
+            get_seed_slide(seed, 3, f"여기서 이해관계가 갈립니다\n{shorten(a['conflict'], 88)}"),
+            get_seed_slide(seed, 4, f"핵심은 요구와 대응입니다\n{shorten(facts[1] if len(facts) > 1 else a['hidden_assumption'], 88)}"),
+            get_seed_slide(seed, 5, f"놓치면 안 되는 전제\n{shorten(a['hidden_assumption'], 88)}"),
+            get_seed_slide(seed, 6, f"당신은 이 사건을\n어떻게 보시나요?\n{cta}"),
+        ]
         directions = [
             "사건의 가장 강한 장면을 크게 보여주는 뉴스형 첫 장.",
             "첫 번째 단서가 되는 숫자나 발언을 자료처럼 보여주는 장면.",
@@ -560,7 +611,7 @@ def main():
     st.set_page_config(page_title="원본 주제 카드뉴스", page_icon="📰", layout="wide")
     init_table()
     st.title("📰 원본 주제 카드뉴스")
-    st.caption("영상내용분석의 동적 해석 슬롯과 slide_seed를 우선 사용해 카드뉴스를 조립합니다.")
+    st.caption("영상내용분석의 해석 슬롯을 쓰되, 최종 카피는 카드뉴스용 문장으로 다시 씁니다.")
     refs = load_references()
     if refs.empty:
         st.warning("먼저 YouTube 영상 내용 분석에서 원본 해석 결과를 저장하세요.")
@@ -626,9 +677,6 @@ def main():
         st.write(f"**바이럴 후킹 로직:** {analysis['viral_hook_logic']}")
         st.write(f"**전개 구조:** {analysis['narrative_structure']}")
         st.write(f"**재사용 가능한 구조:** {analysis['reusable_structure']}")
-        if analysis.get("slide_seed"):
-            st.write("**적용된 slide_seed:**")
-            st.json(analysis["slide_seed"])
         if analysis.get("facts"):
             st.write("**사용할 핵심 팩트:**")
             for fact in analysis["facts"][:8]:
@@ -636,7 +684,7 @@ def main():
 
     ctx = {"analysis": analysis, "template": effective_template, "tone": tone, "topic_type": analysis["topic_type"], "angle": angle, "problem": problem, "cta": cta, "common_style": common_style, "image_ratio": image_ratio, "image_style": image_style, "include_image_copy": include_image_copy}
     plan = build_plan(ctx)
-    signature = "|".join([str(int(row["id"])), get_value(row, "source_table"), analysis["topic"], analysis["event_type"], effective_template, tone, image_ratio, image_style, str(include_image_copy), angle, problem, cta, emphasis, avoid, json.dumps(analysis.get("slide_seed", {}), ensure_ascii=False)])
+    signature = "|".join([str(int(row["id"])), get_value(row, "source_table"), analysis["topic"], analysis["event_type"], effective_template, tone, image_ratio, image_style, str(include_image_copy), angle, problem, cta, emphasis, avoid])
     update_state(plan, signature)
 
     col_refresh, col_info = st.columns([1, 3])
@@ -645,7 +693,7 @@ def main():
             update_state(plan, signature, force=True)
             st.rerun()
     with col_info:
-        st.info("영상내용분석의 interpretation_slots와 slide_seed가 있으면 그 값을 최우선으로 카드뉴스에 반영합니다.")
+        st.info("이제 원본의 해석 슬롯은 참고하되, 최종 카드 카피는 사건별 카피라이터 레이어에서 다시 정리합니다.")
 
     st.markdown("---")
     draft = st.session_state.get("original_topic_plan", plan)
