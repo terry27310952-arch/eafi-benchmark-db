@@ -1,3 +1,4 @@
+import json
 import re
 import sqlite3
 from datetime import datetime
@@ -11,6 +12,23 @@ DB_PATH = Path("eafi_benchmark.db")
 TEMPLATE_OPTIONS = ["문제 제기형", "체크리스트형", "전후 비교형", "교육형", "트렌드 분석형"]
 TONE_LEVELS = ["담백", "명확", "강한 후킹", "자극적"]
 TOPIC_TYPES = ["자동 감지", "시장/투자", "트렌드/이슈", "브랜드/마케팅", "라이프스타일", "교육/노하우", "직접 입력"]
+CONTENT_GOALS = ["원본 내용 깊이 분석", "카드뉴스 원천 데이터화", "바이럴 후킹 추출", "교육형 요약", "이슈/트렌드 재가공"]
+PLATFORM_FOCUS = ["인스타 카드뉴스", "유튜브 커뮤니티", "블로그", "쓰레드", "틱톡/숏폼", "범용"]
+ANALYSIS_DEPTH = ["핵심만", "구조 분석", "세부 근거까지", "전환 관점", "후킹/바이럴 관점"]
+IMAGE_RATIOS = ["1:1", "16:9", "9:16", "4:3"]
+IMAGE_STYLES = [
+    "깔끔한 인포그래픽",
+    "실사 시네마틱",
+    "3D 애니메이션",
+    "2D 일러스트",
+    "웹툰/만화형",
+    "미니멀 타이포그래피",
+    "뉴스 에디토리얼",
+    "데이터 대시보드",
+    "프리미엄 브랜드룩",
+    "AI 혼합 콜라주",
+]
+
 CTA_PRESETS = {
     "저장 유도": "이 기준은 저장해두고 다시 확인해보세요",
     "댓글 유도": "여러분은 이 흐름을 어떻게 보고 계신가요? 댓글로 남겨주세요",
@@ -20,12 +38,55 @@ CTA_PRESETS = {
     "직접 입력": "",
 }
 
+ANGLE_PRESETS = {
+    "자동 생성": "__AUTO__",
+    "문제폭로형": "사람들이 놓치고 있는 문제를 먼저 드러내는 카드뉴스",
+    "오해반박형": "흔히 믿는 착각을 반박하는 카드뉴스",
+    "체크리스트형": "보기 전에 반드시 확인해야 할 기준을 정리하는 카드뉴스",
+    "전후비교형": "Before와 After를 비교해 차이를 보여주는 카드뉴스",
+    "바이럴 후킹형": "사람들이 멈춰서 볼 만한 질문으로 시작하는 카드뉴스",
+    "직접 입력": "",
+}
+
+PROBLEM_PRESETS = {
+    "자동 추출": "__AUTO__",
+    "목적 불명확": "콘텐츠의 목적이 인지도, 신뢰, 문의 중 어디에 있는지 정리되지 않은 상태",
+    "타깃 불명확": "누구에게 말하는 콘텐츠인지 흐려져 메시지와 장면 선택이 모두 애매해진 상태",
+    "전환 경로 부재": "콘텐츠를 본 뒤 시청자가 무엇을 해야 하는지 명확하지 않은 상태",
+    "정보 과잉": "정보는 많지만 무엇을 기준으로 판단해야 하는지 흐려진 상태",
+    "실행 기준 부재": "좋은 말은 많지만 실제로 무엇부터 해야 하는지 정리되지 않은 상태",
+    "레퍼런스 복붙": "겉모습은 따라 했지만 반응을 만든 구조는 읽지 못한 상태",
+    "직접 입력": "",
+}
+
+TARGET_PRESETS = {
+    "브랜드/마케팅 담당자": "영상 제작을 검토 중인 브랜드/마케팅 담당자",
+    "스타트업 대표/팀장": "브랜드 신뢰도를 빠르게 쌓아야 하는 스타트업 대표/팀장",
+    "제품 브랜드 담당자": "제품의 장점을 콘텐츠로 설득해야 하는 브랜드 담당자",
+    "콘텐츠 제작자": "유튜브와 숏폼을 꾸준히 운영해야 하는 콘텐츠 제작자",
+    "일반 시청자": "해당 주제에 관심 있는 일반 시청자",
+    "투자/시장 관심층": "시장 흐름과 이슈를 빠르게 파악하려는 사람",
+    "직접 입력": "",
+}
+
 VISUAL_STYLES = {
-    "깔끔한 인포그래픽": "1:1 카드뉴스. 넓은 여백, 선명한 타이포, 정리된 아이콘과 다이어그램 중심.",
-    "뉴스/이슈형": "1:1 카드뉴스. 뉴스 헤드라인, 데이터 패널, 시장 반응, 타임라인을 활용한 에디토리얼 스타일.",
-    "프리미엄 브랜드형": "1:1 카드뉴스. 블랙, 화이트, 웜 그레이 기반의 고급 브랜드 매거진 톤.",
-    "데이터 분석형": "1:1 카드뉴스. 그래프, 지표, 비교표, 체크포인트가 중심인 분석형 디자인.",
-    "커뮤니티 바이럴형": "1:1 카드뉴스. 짧은 훅, 큰 타이포, 강한 대비, 공유 욕구가 생기는 구성.",
+    "깔끔한 인포그래픽": "clean editorial infographic, organized icons, clear hierarchy, generous whitespace",
+    "실사 시네마틱": "cinematic realistic photography, premium lighting, shallow depth of field, natural objects",
+    "3D 애니메이션": "stylized 3D animation, soft lighting, polished commercial render, expressive composition",
+    "2D 일러스트": "modern flat 2D illustration, clean shapes, balanced composition, editorial feel",
+    "웹툰/만화형": "Korean webtoon inspired illustration, dynamic panels, expressive characters, clean linework",
+    "미니멀 타이포그래피": "minimal typography poster style, strong layout, negative space, bold graphic rhythm",
+    "뉴스 에디토리얼": "news editorial visual, headline layout, data panels, reportage mood",
+    "데이터 대시보드": "data dashboard design, charts, UI cards, analytical visual system",
+    "프리미엄 브랜드룩": "premium brand campaign visual, black and warm gray palette, elegant composition",
+    "AI 혼합 콜라주": "AI mixed media collage, realistic elements with graphic overlays, modern editorial texture",
+}
+
+RATIO_PROMPTS = {
+    "1:1": "square 1:1 composition",
+    "16:9": "wide 16:9 horizontal composition",
+    "9:16": "vertical 9:16 mobile story composition",
+    "4:3": "classic 4:3 editorial composition",
 }
 
 
@@ -69,16 +130,38 @@ def init_table():
 
 def load_references():
     conn = connect_db()
-    df = pd.read_sql_query("""
-        SELECT r.id, c.platform, c.channel_name, c.category, r.title, r.url,
-               r.hook_point, r.structure_note, r.visual_note, r.eafi_application,
-               r.total_score, r.status, r.created_at
-        FROM content_references r
-        LEFT JOIN benchmark_channels c ON r.channel_id = c.id
-        ORDER BY r.id DESC
-    """, conn)
+    dfs = []
+    try:
+        refs = pd.read_sql_query("""
+            SELECT r.id, 'content_reference' AS source_table, c.platform, c.channel_name, c.category, r.title, r.url,
+                   r.hook_point, r.structure_note, r.visual_note, r.eafi_application,
+                   r.total_score, r.status, r.created_at
+            FROM content_references r
+            LEFT JOIN benchmark_channels c ON r.channel_id = c.id
+            ORDER BY r.id DESC
+        """, conn)
+        dfs.append(refs)
+    except Exception:
+        pass
+
+    try:
+        yt = pd.read_sql_query("""
+            SELECT id, 'youtube_analysis' AS source_table, 'YouTube' AS platform, channel_name, '영상 분석' AS category,
+                   title, url, hook_point, structure_note, visual_note, eafi_application,
+                   20 AS total_score, '영상 분석' AS status, created_at,
+                   summary, keywords, transcript
+            FROM youtube_video_analyses
+            ORDER BY id DESC
+        """, conn)
+        dfs.append(yt)
+    except Exception:
+        pass
     conn.close()
-    return df
+
+    if not dfs:
+        return pd.DataFrame()
+    df = pd.concat(dfs, ignore_index=True, sort=False)
+    return df.sort_values("created_at", ascending=False, na_position="last")
 
 
 def load_plans():
@@ -110,7 +193,7 @@ def compact_lines(text):
     return "\n".join([line.strip() for line in clean(text).splitlines() if line.strip()])
 
 
-def shorten(text, max_len=86):
+def shorten(text, max_len=90):
     text = strip_raw_labels(text)
     return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
 
@@ -148,36 +231,66 @@ def detect_topic_type(text):
     return "트렌드/이슈"
 
 
-def analyze_source(row, selected_topic_type):
+def select_from_dict_like(label, options, key, default=None, height=80):
+    labels = list(options.keys())
+    index = labels.index(default) if default in labels else 0
+    selected = st.selectbox(label, labels, index=index, key=f"{key}_select")
+    if selected == "직접 입력":
+        return st.text_area(f"{label} 직접 입력", height=height, key=f"{key}_custom"), selected
+    return options[selected], selected
+
+
+def analyze_source(row, selected_topic_type, context):
     title = strip_raw_labels(row.get("title"))
     hook = strip_raw_labels(row.get("hook_point"))
     structure = strip_raw_labels(row.get("structure_note"))
     application = strip_raw_labels(row.get("eafi_application"))
-    source_text = " ".join([title, hook, structure, application])
+    summary = strip_raw_labels(row.get("summary"))
+    keywords = strip_raw_labels(row.get("keywords"))
+    transcript = strip_raw_labels(row.get("transcript"))
+    source_text = " ".join([title, hook, structure, application, summary, keywords, transcript[:1200]])
 
     topic_type = detect_topic_type(source_text) if selected_topic_type == "자동 감지" else selected_topic_type
     topic = shorten(title or application or hook or "원본 주제", 54)
 
+    if context["content_goal"] == "바이럴 후킹 추출":
+        angle = f"{topic}이 사람들을 멈추게 만드는 이유"
+    elif context["content_goal"] == "교육형 요약":
+        angle = f"{topic}을 이해하기 전 알아야 할 기준"
+    elif context["content_goal"] == "이슈/트렌드 재가공":
+        angle = f"{topic}에서 지금 봐야 할 흐름"
+    elif context["content_goal"] == "원본 내용 깊이 분석":
+        angle = f"{topic}의 핵심을 깊게 보는 법"
+    else:
+        angle = f"{topic}에서 먼저 봐야 할 것"
+
     if topic_type == "시장/투자":
         claim = f"{topic}에 시장의 관심이 다시 모이는 흐름을 다룹니다"
         audience_problem = "많은 사람은 방향보다 가격만 먼저 보고, 왜 움직이는지에 대한 판단 기준을 놓치기 쉽습니다"
-        angle = f"{topic}에서 지금 먼저 봐야 할 것"
         checklist = ["왜 지금 관심이 모이는가", "실제로 바뀐 지표가 있는가", "기대감과 현실 사이의 간격은 어느 정도인가", "다음 판단 기준은 무엇인가"]
     elif topic_type == "브랜드/마케팅":
         claim = f"{topic}이 성과로 이어지는 구조를 다룹니다"
         audience_problem = "보기 좋은 결과물만 보다가 실제 행동으로 이어지는 흐름을 놓치기 쉽습니다"
-        angle = f"{topic}이 결과로 이어지려면 먼저 봐야 할 것"
         checklist = ["누구에게 말하는가", "무엇을 기억하게 할 것인가", "어떤 감정을 만들 것인가", "다음 행동은 무엇인가"]
     elif topic_type == "교육/노하우":
         claim = f"{topic}을 더 쉽게 이해하는 기준을 다룹니다"
         audience_problem = "방법은 많지만 무엇부터 봐야 하는지 정리되지 않아 실행이 어려워집니다"
-        angle = f"{topic}을 이해하기 전 확인할 기준"
         checklist = ["먼저 알아야 할 개념", "흔히 하는 착각", "실제로 적용할 순서", "마지막 체크포인트"]
     else:
         claim = f"{topic}에 대한 관심이 커지는 흐름을 다룹니다"
         audience_problem = "사람들은 결론만 먼저 보다가 왜 중요한지, 무엇을 확인해야 하는지 놓치기 쉽습니다"
-        angle = f"{topic}에서 지금 봐야 할 것"
         checklist = ["왜 관심이 커졌는가", "사람들이 놓치는 지점은 무엇인가", "진짜 봐야 할 기준은 무엇인가", "다음에 확인할 것은 무엇인가"]
+
+    if context["analysis_depth"] == "세부 근거까지" and summary:
+        claim = f"{claim}\n근거 요약: {shorten(summary, 160)}"
+    if context["analysis_depth"] == "후킹/바이럴 관점":
+        audience_problem = "사람들이 왜 멈춰서 보는지보다 제목과 결론만 따라가려는 상태"
+    if context["target_audience"]:
+        audience_problem = f"{context['target_audience']} 기준으로 보면, {audience_problem}"
+    if context["emphasis"]:
+        audience_problem += f" 특히 {context['emphasis']} 관점이 중요합니다."
+    if context["avoid"]:
+        audience_problem += f" 다만 {context['avoid']} 관점은 제외합니다."
 
     if len(structure) < 20:
         structure = "후킹 질문 → 배경 설명 → 문제 정의 → 판단 기준 → 정리/CTA"
@@ -191,7 +304,20 @@ def analyze_source(row, selected_topic_type):
         "structure": structure,
         "checklist": checklist,
         "source_text": source_text,
+        "keywords": keywords,
     }
+
+
+def resolve_auto_angle(value, analysis):
+    if value and value != "__AUTO__":
+        return value
+    return analysis["angle"]
+
+
+def resolve_auto_problem(value, analysis):
+    if value and value != "__AUTO__":
+        return value
+    return analysis["audience_problem"]
 
 
 def build_plan(ctx):
@@ -266,8 +392,16 @@ def build_plan(ctx):
 
 def build_images(ctx, template):
     topic = ctx["analysis"]["topic"]
+    ratio = RATIO_PROMPTS[ctx["image_ratio"]]
+    style = VISUAL_STYLES[ctx["image_style"]]
+    copy_rule = (
+        "include short Korean headline text with safe margins"
+        if ctx["include_image_copy"] else
+        "clean image only, no text, no captions, no typography, no letters, no watermark, no logo"
+    )
+
     if template == "체크리스트형":
-        return [
+        ideas = [
             f"{topic}를 상징하는 강한 첫 장. 큰 제목, 핵심 오브젝트, 짧은 경고성 분위기.",
             "체크리스트 1번을 보여주는 카드. 원인 또는 배경을 한눈에 보여주는 아이콘과 짧은 구조도.",
             "체크리스트 2번을 보여주는 카드. 수치, 지표, 비교 표식이 보이는 분석형 구성.",
@@ -275,14 +409,16 @@ def build_images(ctx, template):
             "체크리스트 4번을 보여주는 카드. 다음 행동 기준을 정리한 깔끔한 보드.",
             "저장/공유/댓글 행동을 유도하는 마무리 카드. 여백 중심의 깔끔한 CTA 구성.",
         ]
-    return [
-        f"{topic}를 상징하는 첫 장. 뉴스 헤드라인, 데이터 패널, 주목받는 오브젝트를 강한 후킹 구도로 표현.",
-        "원본 주제에 관심이 몰리는 흐름을 보여주는 장면. 검색량, 뉴스, 커뮤니티 반응이 정리된 느낌.",
-        "독자가 놓치기 쉬운 문제를 시각화. 잘못된 판단과 올바른 판단 기준이 대비되는 인포그래픽.",
-        "원인과 배경을 분석하는 장면. 흐름을 만든 이유가 3가지 가지로 나뉘어 보이는 보드.",
-        "핵심 기준을 정리한 카드. 체크포인트, 판단 기준, 다음 확인 지점이 한눈에 보이게 구성.",
-        "저장, 공유, 댓글 같은 행동을 유도하는 마무리 카드. CTA가 선명한 구성.",
-    ]
+    else:
+        ideas = [
+            f"{topic}를 상징하는 첫 장. 뉴스 헤드라인, 데이터 패널, 주목받는 오브젝트를 강한 후킹 구도로 표현.",
+            "원본 주제에 관심이 몰리는 흐름을 보여주는 장면. 검색량, 뉴스, 커뮤니티 반응이 정리된 느낌.",
+            "독자가 놓치기 쉬운 문제를 시각화. 잘못된 판단과 올바른 판단 기준이 대비되는 인포그래픽.",
+            "원인과 배경을 분석하는 장면. 흐름을 만든 이유가 3가지 가지로 나뉘어 보이는 보드.",
+            "핵심 기준을 정리한 카드. 체크포인트, 판단 기준, 다음 확인 지점이 한눈에 보이게 구성.",
+            "저장, 공유, 댓글 같은 행동을 유도하는 마무리 카드. CTA가 선명한 구성.",
+        ]
+    return [f"{ratio}, {style}. {idea} {copy_rule}" for idea in ideas]
 
 
 def save_plan(reference_id, plan):
@@ -328,7 +464,7 @@ def render_editable(plan, version):
         with st.container(border=True):
             st.markdown(f"#### {idx}장")
             slides.append(st.text_area("카피", value=copy, height=120, key=f"ot_slide_{idx}_{suffix}"))
-            images.append(st.text_area("장별 이미지 방향", value=image, height=100, key=f"ot_image_{idx}_{suffix}"))
+            images.append(st.text_area("장별 이미지 방향", value=image, height=110, key=f"ot_image_{idx}_{suffix}"))
 
     edited = dict(plan)
     edited.update({"common_style": common_style, "title": title, "core_problem": core_problem, "main_message": main_message, "cta": cta, "slides": slides, "images": images})
@@ -340,30 +476,69 @@ def main():
     init_table()
 
     st.title("📰 원본 주제 카드뉴스")
-    st.caption("수집한 링크/영상의 주제 자체를 카드뉴스로 재가공합니다. eaf 서비스 영업 카피와 분리된 메뉴입니다.")
+    st.caption("YouTube 분석 데이터나 참고 콘텐츠를 카드뉴스로 재가공합니다. 이미지 비율, 스타일, 카피 포함 여부까지 여기서 설정합니다.")
 
     refs = load_references()
     if refs.empty:
-        st.warning("먼저 URL 자동 수집 또는 YouTube 영상 내용 분석에서 참고 콘텐츠를 저장하세요.")
+        st.warning("먼저 YouTube 영상 내용 분석에서 분석 결과를 저장하세요.")
         return
 
-    options = {f"{row['id']} · {clean(row['title'])}": row for _, row in refs.iterrows()}
+    options = {f"{row['source_table']} · {row['id']} · {clean(row['title'])}": row for _, row in refs.iterrows()}
     selected_key = st.selectbox("원본 콘텐츠 선택", list(options.keys()))
     row = options[selected_key]
 
     st.markdown("---")
-    st.markdown("### 생성 조건")
+    st.markdown("### 콘텐츠 분석 조건")
     c1, c2, c3 = st.columns(3)
     with c1:
         topic_type_select = st.selectbox("주제 유형", TOPIC_TYPES, index=0)
+        content_goal = st.selectbox("콘텐츠 목적", CONTENT_GOALS, index=1)
     with c2:
         template = st.selectbox("콘텐츠 구조", TEMPLATE_OPTIONS, index=0)
+        platform_focus = st.selectbox("플랫폼/사용처", PLATFORM_FOCUS, index=0)
     with c3:
         tone = st.selectbox("후킹 강도", TONE_LEVELS, index=2)
+        analysis_depth = st.selectbox("분석 깊이", ANALYSIS_DEPTH, index=1)
 
-    analysis = analyze_source(row, topic_type_select)
+    c4, c5 = st.columns(2)
+    with c4:
+        target_value, target_label = select_from_dict_like("타깃 독자", TARGET_PRESETS, "ot_target", "일반 시청자")
+        angle_value, angle_label = select_from_dict_like("카드뉴스 핵심 각도", ANGLE_PRESETS, "ot_angle", "자동 생성")
+        problem_value, problem_label = select_from_dict_like("핵심 문제", PROBLEM_PRESETS, "ot_problem_preset", "자동 추출")
+    with c5:
+        emphasis = st.text_input("강조할 관점", placeholder="예: 전환 구조, 비용 누수, 판단 기준, 바이럴 후킹")
+        avoid = st.text_input("제외할 관점", placeholder="예: 과한 투자 조언, 원문 그대로 요약, 브랜드명 과다 노출")
+        cta, cta_label = select_from_dict_like("CTA", CTA_PRESETS, "ot_cta_preset", "저장 유도")
+
+    st.markdown("### 이미지 생성 조건")
+    i1, i2, i3 = st.columns(3)
+    with i1:
+        image_ratio = st.selectbox("이미지 비율", IMAGE_RATIOS, index=0)
+    with i2:
+        image_style = st.selectbox("이미지 스타일", IMAGE_STYLES, index=0)
+    with i3:
+        include_image_copy = st.checkbox("이미지 안에 카피/텍스트 넣기", value=True)
+        st.caption("끄면 no text / no captions / no watermark 조건이 들어갑니다.")
+
+    base_context = {
+        "content_goal": content_goal,
+        "platform_focus": platform_focus,
+        "analysis_depth": analysis_depth,
+        "target_audience": target_value,
+        "emphasis": emphasis,
+        "avoid": avoid,
+    }
+    analysis = analyze_source(row, topic_type_select, base_context)
     if topic_type_select == "직접 입력":
         analysis["topic_type"] = st.text_input("주제 유형 직접 입력", value="사용자 정의")
+
+    angle = resolve_auto_angle(angle_value, analysis)
+    problem = resolve_auto_problem(problem_value, analysis)
+    common_style = f"{RATIO_PROMPTS[image_ratio]}, {VISUAL_STYLES[image_style]}. 플랫폼: {platform_focus}."
+    if include_image_copy:
+        common_style += " 이미지 안에 짧은 한글 헤드라인을 넣을 수 있음. 안전 여백 확보."
+    else:
+        common_style += " clean image only, no text, no captions, no typography, no letters, no watermark, no logo."
 
     with st.expander("원본 분석 결과", expanded=True):
         st.write(f"**감지된 주제 유형:** {analysis['topic_type']}")
@@ -371,15 +546,8 @@ def main():
         st.write(f"**핵심 주장:** {analysis['claim']}")
         st.write(f"**독자 문제:** {analysis['audience_problem']}")
         st.write(f"**차용할 전개 구조:** {analysis['structure']}")
-
-    c4, c5 = st.columns(2)
-    with c4:
-        angle = st.text_input("카드뉴스 핵심 각도", value=analysis["angle"])
-        problem = st.text_area("핵심 문제", value=analysis["audience_problem"], height=80)
-    with c5:
-        cta, cta_label = select_cta = select_from_dict_like("CTA", CTA_PRESETS, "ot_cta_preset", "저장 유도")
-        visual_label = st.selectbox("이미지 스타일", list(VISUAL_STYLES.keys()), index=0)
-        common_style = st.text_area("공통 이미지 스타일", value=VISUAL_STYLES[visual_label], height=80)
+        if analysis.get("keywords"):
+            st.write(f"**키워드:** {analysis['keywords']}")
 
     ctx = {
         "analysis": analysis,
@@ -390,10 +558,17 @@ def main():
         "problem": problem,
         "cta": cta,
         "common_style": common_style,
+        "image_ratio": image_ratio,
+        "image_style": image_style,
+        "include_image_copy": include_image_copy,
     }
     plan = build_plan(ctx)
 
-    signature = "|".join([str(int(row["id"])), analysis["topic_type"], template, tone, angle, problem, cta, common_style])
+    signature = "|".join([
+        str(int(row["id"])), clean(row.get("source_table")), analysis["topic_type"], content_goal, platform_focus,
+        analysis_depth, template, tone, target_label, angle_label, problem_label, image_ratio, image_style,
+        str(include_image_copy), angle, problem, cta, emphasis, avoid,
+    ])
     update_state(plan, signature)
 
     col_refresh, col_info = st.columns([1, 3])
@@ -402,7 +577,7 @@ def main():
             update_state(plan, signature, force=True)
             st.rerun()
     with col_info:
-        st.info("이 메뉴는 원본 주제 자체를 카드뉴스로 만듭니다. eaf 서비스 전환 카피는 넣지 않습니다.")
+        st.info("카드뉴스 제작 조건은 이 메뉴에서 설정합니다. YouTube 분석 메뉴는 원문 수집/분석 저장만 담당합니다.")
 
     st.markdown("---")
     draft = st.session_state.get("original_topic_plan", plan)
@@ -420,15 +595,6 @@ def main():
         st.info("아직 저장된 카드뉴스가 없습니다.")
     else:
         st.dataframe(plans, use_container_width=True, hide_index=True)
-
-
-def select_from_dict_like(label, options, key, default=None):
-    labels = list(options.keys())
-    index = labels.index(default) if default in labels else 0
-    selected = st.selectbox(label, labels, index=index, key=f"{key}_select")
-    if selected == "직접 입력":
-        return st.text_area(f"{label} 직접 입력", height=80, key=f"{key}_custom"), selected
-    return options[selected], selected
 
 
 if __name__ == "__main__":
