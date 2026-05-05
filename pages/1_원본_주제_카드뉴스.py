@@ -68,6 +68,7 @@ VISUAL_STYLES = {
 }
 
 RATIO_PROMPTS = {"1:1": "square 1:1 composition", "16:9": "wide 16:9 horizontal composition", "9:16": "vertical 9:16 mobile story composition", "4:3": "classic 4:3 editorial composition"}
+GENERIC_CTA_LEAKS = ["이 기준은 저장해두고 다시 확인해보세요", "저장해두고 다시 확인해보세요", "이 기준이 필요했다면"]
 COPY_LEAKS = ["첫 번째 단서", "결론만 보면", "과정이 중요한 이야기입니다", "겉으로 보이는 결과", "사람들이 놓치기 쉬운 건"]
 
 
@@ -154,7 +155,7 @@ def strip_meta(text):
     return text
 
 
-def shorten(text, max_len=95):
+def shorten(text, max_len=110):
     text = strip_meta(text)
     return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
 
@@ -182,7 +183,7 @@ def has_any(text, words):
 
 def polish(text, tone="명확"):
     text = compact_lines(text)
-    replacements = {"합니다입니다": "합니다", "쉽습니다입니다": "쉽습니다", "중요합니다입니다": "중요합니다", "진짜": "정말", "없으면": "없다면"}
+    replacements = {"합니다입니다": "합니다", "쉽습니다입니다": "쉽습니다", "중요합니다입니다": "중요합니다", "진짜": "정말", "없으면": "없다면", "~": ""}
     for old, new in replacements.items():
         text = text.replace(old, new)
     if tone == "담백":
@@ -190,6 +191,35 @@ def polish(text, tone="명확"):
     elif tone == "자극적":
         text = text.replace("봐야 합니다", "놓치면 안 됩니다")
     return text.strip()
+
+
+def make_copy(headline, body=""):
+    headline = compact_lines(headline)
+    body = compact_lines(body)
+    if body:
+        return f"헤드카피\n{headline}\n\n바디카피\n{body}"
+    return f"헤드카피\n{headline}"
+
+
+def selected_cta_is_generic(cta):
+    cta = clean(cta)
+    return not cta or any(leak in cta for leak in GENERIC_CTA_LEAKS)
+
+
+def contextual_ending(analysis, selected_cta):
+    custom = clean(selected_cta)
+    if custom and not selected_cta_is_generic(custom):
+        return custom
+    event_type = analysis.get("event_type", "general")
+    if event_type == "samsung_labor":
+        return "당신은 이 갈등을 직원 보상 문제로 보시나요, 회사의 생존 전략으로 보시나요?"
+    if event_type == "park_donation":
+        return "이 이야기는 미담일까요, 아니면 우리가 늦게 본 갈등의 기록일까요?"
+    if event_type in ["labor_conflict", "legal_conflict"]:
+        return "당신은 어느 쪽의 논리가 더 설득력 있다고 보시나요?"
+    if analysis.get("topic_type") == "시장/투자":
+        return "지금 봐야 할 건 가격이 아니라, 그 가격을 움직인 이유입니다."
+    return "이 이야기를 다시 본다면, 가장 먼저 어떤 기준을 확인해야 할까요?"
 
 
 def select_from_dict_like(label, options, key, default=None, height=80):
@@ -262,7 +292,7 @@ def collect_fact_pool(row):
     timeline_seeds = seed.get("timeline_seeds", []) if isinstance(seed, dict) else []
     fact_roles = list((slots.get("fact_roles", {}) if isinstance(slots, dict) else {}).values())
     summary = split_source_sentences(get_value(row, "summary"))
-    transcript = split_source_sentences(get_value(row, "transcript"))[:80]
+    transcript = split_source_sentences(get_value(row, "transcript"))[:100]
     raw_items = []
     for group in [fact_roles, fact_seeds, evidence, timeline_seeds, timeline, cause, summary, qa, transcript]:
         if isinstance(group, list):
@@ -277,7 +307,7 @@ def collect_fact_pool(row):
             continue
         seen.add(key)
         result.append(value)
-        if len(result) >= 35:
+        if len(result) >= 40:
             break
     return result
 
@@ -322,7 +352,6 @@ def infer_topic(row, facts, actors, slots):
 
 def analyze_source(row, selected_topic_type, context):
     slots = safe_json(get_value(row, "interpretation_slots"), {})
-    seed = safe_json(get_value(row, "cardnews_seed"), {})
     actor_map = safe_json(get_value(row, "actor_map"), [])
     actors = actor_names(actor_map)
     facts = collect_fact_pool(row)
@@ -349,12 +378,6 @@ def analyze_source(row, selected_topic_type, context):
     else:
         topic_type = selected_topic_type
 
-    slide_seed = {}
-    if isinstance(slots, dict) and isinstance(slots.get("slide_seed"), dict):
-        slide_seed = slots.get("slide_seed")
-    elif isinstance(seed, dict) and isinstance(seed.get("slide_seed"), dict):
-        slide_seed = seed.get("slide_seed")
-
     return {
         "source_table": get_value(row, "source_table"),
         "source_kind": source_kind,
@@ -373,7 +396,6 @@ def analyze_source(row, selected_topic_type, context):
         "actor_map": actor_map,
         "actor_names": actors,
         "facts": facts,
-        "slide_seed": slide_seed,
         "interpretation_slots": slots,
         "keywords": get_value(row, "keywords"),
     }
@@ -382,7 +404,7 @@ def analyze_source(row, selected_topic_type, context):
 def fact_text(facts, tokens, fallback):
     for fact in facts:
         if has_any(fact, tokens):
-            return fact
+            return normalize_sentence(fact)
     return fallback
 
 
@@ -402,63 +424,77 @@ def resolve_auto_problem(value, analysis):
     return analysis["audience_problem"]
 
 
-def seed_is_bad(text):
-    text = clean(text)
-    return not text or any(leak in text for leak in COPY_LEAKS) or len(text) > 140
-
-
-def get_seed_slide(slide_seed, idx, fallback):
-    if isinstance(slide_seed, dict):
-        val = slide_seed.get(f"slide_{idx}") or slide_seed.get(str(idx))
-        if val and not seed_is_bad(val):
-            return normalize_sentence(val)
-    return fallback
-
-
-def build_samsung_slides(a, cta):
+def build_samsung_slides(a, selected_cta):
     facts = a["facts"]
-    has_15 = has_any(" ".join(facts), ["15%", "영업 이익", "영업이익"])
-    has_45 = has_any(" ".join(facts), ["45조"])
-    has_plug = has_any(" ".join(facts), ["플러그", "전원", "폐쇄", "가전라인"])
-    has_strike = has_any(" ".join(facts), ["파업", "93%", "찬성"])
-    has_gov = has_any(" ".join(facts), ["정부", "주무부처", "70%", "경쟁력"])
-
-    demand = "노조는 영업이익 15% 배분을 요구했습니다" if has_15 else shorten(fact_text(facts, ["성과급", "영업 이익", "영업이익"], "성과급 요구가 갈등의 출발점이었습니다"), 82)
-    amount = "요구 규모는 45조라는 숫자까지 커졌습니다" if has_45 else shorten(fact_text(facts, ["45조", "숫자", "규모"], "숫자가 커지면서 단순한 보너스 논쟁을 넘어섰습니다"), 82)
-    response = "가전 생산라인 전원까지 언급하며 맞섰습니다" if has_plug else shorten(fact_text(facts, ["플러그", "전원", "폐쇄", "대답"], "회사는 강경한 방식으로 대응했습니다"), 82)
-    outside = "파업, 정부, 산업 경쟁력 이슈까지 겹쳤습니다" if (has_strike or has_gov) else shorten(fact_text(facts, ["파업", "정부", "경쟁력", "여론"], "갈등은 회사 밖의 여론전으로 번졌습니다"), 82)
+    demand_raw = fact_text(facts, ["15%", "성과급", "영업 이익", "영업이익"], "노조는 회사가 벌어들인 이익 일부를 성과급으로 돌려달라고 요구했습니다")
+    amount_raw = fact_text(facts, ["45조"], "요구 규모가 거대한 숫자로 읽히면서 논쟁은 단순한 보너스 문제를 넘어섰습니다")
+    response_raw = fact_text(facts, ["플러그", "전원", "폐쇄", "가전라인"], "회사는 생산라인 중단까지 거론하는 강경한 방식으로 맞섰습니다")
+    outside_raw = fact_text(facts, ["파업", "93%", "찬성", "정부", "주무부처", "70%", "경쟁력"], "갈등은 파업과 여론전, 산업 경쟁력 논쟁으로 번졌습니다")
+    close = contextual_ending(a, selected_cta)
 
     return [
-        "삼성은 왜\n가전라인 폐쇄까지 꺼냈을까요?",
-        f"출발점은 성과급이었습니다\n{demand}",
-        f"숫자는 여기서 커졌습니다\n{amount}",
-        f"삼성의 대답은 강경했습니다\n{response}",
-        f"이제 사내 갈등이 아니었습니다\n{outside}",
-        f"이건 직원 몫의 돈일까요\n회사의 생존 비용일까요?\n{cta}",
+        make_copy(
+            "삼성은 왜\n가전라인 폐쇄까지 꺼냈을까요?",
+            "겉으로는 노사 갈등처럼 보이지만, 안쪽에는 성과급과 미래 투자라는 더 큰 충돌이 있었습니다."
+        ),
+        make_copy(
+            "출발점은 성과급이었습니다",
+            f"노조의 요구는 단순한 격려금이 아니었습니다. {shorten(demand_raw, 92)}"
+        ),
+        make_copy(
+            "문제는 숫자가 너무 컸다는 겁니다",
+            f"회사가 보기엔 이 요구가 미래 투자 재원을 흔드는 문제로 보였습니다. {shorten(amount_raw, 92)}"
+        ),
+        make_copy(
+            "그래서 삼성은 강하게 맞섰습니다",
+            f"회사는 더 이상 양보의 문제가 아니라고 판단했습니다. {shorten(response_raw, 92)}"
+        ),
+        make_copy(
+            "갈등은 회사 밖으로 번졌습니다",
+            f"이제 쟁점은 직원 보상을 넘어 파업, 여론, 산업 경쟁력 문제로 커졌습니다. {shorten(outside_raw, 92)}"
+        ),
+        make_copy(
+            "결국 질문은 하나입니다",
+            close
+        ),
     ]
 
 
-def build_park_slides(a, cta):
+def build_park_slides(a, selected_cta):
     facts = a["facts"]
-    park = shorten(fact_text(facts, ["공원", "주차장", "시민"], "지금은 시민들이 이용하는 평화로운 공간입니다"), 82)
-    donation = shorten(fact_text(facts, ["기증", "부지"], "이 공간은 기업의 부지 기증에서 시작됐습니다"), 82)
-    union = shorten(fact_text(facts, ["노조", "반발", "직원"], "하지만 내부에서는 직원과 노조의 반발도 있었습니다"), 82)
+    park = fact_text(facts, ["공원", "주차장", "시민"], "지금은 시민들이 이용하는 평화로운 공간으로 남아 있습니다")
+    donation = fact_text(facts, ["기증", "부지"], "이 공간은 기업의 부지 기증에서 시작됐습니다")
+    union = fact_text(facts, ["노조", "반발", "직원"], "하지만 내부에서는 직원과 노조의 반발도 있었습니다")
+    close = contextual_ending(a, selected_cta)
     return [
-        "아름다운 공원에도\n숨은 이야기가 있습니다",
-        f"지금은 평화로운 공간입니다\n{park}",
-        f"하지만 시작은 기부였습니다\n{donation}",
-        f"그 과정이 모두 평화롭진 않았습니다\n{union}",
-        f"핵심은 이 충돌입니다\n{shorten(a['conflict'], 86)}",
-        f"미담만 보고 지나쳐도 될까요?\n{cta}",
+        make_copy("아름다운 공원에도\n숨은 이야기가 있습니다", "지금 보이는 풍경만으로는 이 공간이 지나온 갈등을 다 설명할 수 없습니다."),
+        make_copy("지금은 평화로운 공간입니다", shorten(park, 105)),
+        make_copy("하지만 시작은 기부였습니다", shorten(donation, 105)),
+        make_copy("그 과정이 모두 평화롭진 않았습니다", shorten(union, 105)),
+        make_copy("핵심은 결과와 과정의 충돌입니다", shorten(a["conflict"], 105)),
+        make_copy("이 이야기를 다시 본다면", close),
+    ]
+
+
+def build_general_event_slides(a, selected_cta):
+    facts = a["facts"]
+    close = contextual_ending(a, selected_cta)
+    fact1 = facts[0] if facts else a["primary_claim"]
+    fact2 = facts[1] if len(facts) > 1 else a["conflict"]
+    fact3 = facts[2] if len(facts) > 2 else a["hidden_assumption"]
+    return [
+        make_copy(f"{shorten(a['topic'], 28)}\n결론만으로는 부족합니다", "이 사건은 결과보다 그 결과가 만들어진 조건을 먼저 봐야 합니다."),
+        make_copy("먼저 봐야 할 단서", shorten(fact1, 105)),
+        make_copy("이해관계는 여기서 갈립니다", shorten(a["conflict"], 105)),
+        make_copy("핵심은 요구와 대응입니다", shorten(fact2, 105)),
+        make_copy("놓치면 안 되는 전제", shorten(fact3, 105)),
+        make_copy("마지막 질문", close),
     ]
 
 
 def build_slot_based_event_plan(ctx):
     a = ctx["analysis"]
     cta = ctx["cta"]
-    facts = a["facts"]
-    seed = a.get("slide_seed", {})
-
     if a["event_type"] == "samsung_labor":
         slides = build_samsung_slides(a, cta)
         directions = [
@@ -480,14 +516,7 @@ def build_slot_based_event_plan(ctx):
             "공원 벤치 위에 질문 하나가 남는 조용한 마무리 장면.",
         ]
     else:
-        slides = [
-            get_seed_slide(seed, 1, f"{shorten(a['topic'], 28)}\n결론만으로는 부족합니다"),
-            get_seed_slide(seed, 2, f"먼저 봐야 할 단서\n{shorten(facts[0] if facts else a['primary_claim'], 88)}"),
-            get_seed_slide(seed, 3, f"여기서 이해관계가 갈립니다\n{shorten(a['conflict'], 88)}"),
-            get_seed_slide(seed, 4, f"핵심은 요구와 대응입니다\n{shorten(facts[1] if len(facts) > 1 else a['hidden_assumption'], 88)}"),
-            get_seed_slide(seed, 5, f"놓치면 안 되는 전제\n{shorten(a['hidden_assumption'], 88)}"),
-            get_seed_slide(seed, 6, f"당신은 이 사건을\n어떻게 보시나요?\n{cta}"),
-        ]
+        slides = build_general_event_slides(a, cta)
         directions = [
             "사건의 가장 강한 장면을 크게 보여주는 뉴스형 첫 장.",
             "첫 번째 단서가 되는 숫자나 발언을 자료처럼 보여주는 장면.",
@@ -503,15 +532,16 @@ def build_slot_based_event_plan(ctx):
 def build_generic_plan(ctx):
     a = ctx["analysis"]
     facts = a["facts"]
-    cta = ctx["cta"]
+    close = contextual_ending(a, ctx["cta"])
     topic = a["topic"]
+    fact1 = facts[0] if facts else a["primary_claim"]
     slides = [
-        f"{shorten(topic, 28)}\n먼저 봐야 할 기준이 있습니다",
-        f"핵심 단서\n{shorten(facts[0] if facts else a['primary_claim'], 92)}",
-        f"사람들이 놓치는 건\n{shorten(a['audience_problem'], 92)}",
-        f"판단 기준은\n{shorten(a['conflict'], 92)}",
-        f"정리하면\n{shorten(a['reusable_structure'], 92)}",
-        f"이 기준이 필요했다면\n{cta}",
+        make_copy(f"{shorten(topic, 28)}\n먼저 봐야 할 기준이 있습니다", "결론보다 중요한 건 이 이야기를 움직인 조건입니다."),
+        make_copy("핵심 단서", shorten(fact1, 105)),
+        make_copy("사람들이 놓치는 지점", shorten(a["audience_problem"], 105)),
+        make_copy("판단 기준", shorten(a["conflict"], 105)),
+        make_copy("정리하면", shorten(a["reusable_structure"], 105)),
+        make_copy("마지막 질문", close),
     ]
     directions = [
         "원본 주제를 상징하는 첫 장. 큰 오브젝트와 짧은 문장으로 초반 주목도를 만드는 구성.",
@@ -544,7 +574,7 @@ def finalize_plan(ctx, title, main_message, slides, directions, prompts):
         "target_customer": ctx["topic_type"],
         "core_problem": polish(ctx.get("problem") or main_message, tone),
         "main_message": polish(main_message, tone),
-        "cta": polish(ctx["cta"], tone),
+        "cta": contextual_ending(ctx["analysis"], ctx["cta"]),
         "common_style": ctx["common_style"],
         "slides": slides,
         "directions": directions,
@@ -599,7 +629,7 @@ def render_editable(plan, version):
     for idx in range(6):
         with st.container(border=True):
             st.markdown(f"#### {idx + 1}장")
-            slides.append(st.text_area("카피", value=plan["slides"][idx], height=110, key=f"ot_slide_{idx}_{suffix}"))
+            slides.append(st.text_area("카피", value=plan["slides"][idx], height=150, key=f"ot_slide_{idx}_{suffix}"))
             directions.append(st.text_area("장면 방향", value=plan["directions"][idx], height=90, key=f"ot_direction_{idx}_{suffix}"))
             prompts.append(st.text_area("이미지 생성 프롬프트", value=plan["prompts"][idx], height=120, key=f"ot_prompt_{idx}_{suffix}"))
     edited = dict(plan)
@@ -611,7 +641,7 @@ def main():
     st.set_page_config(page_title="원본 주제 카드뉴스", page_icon="📰", layout="wide")
     init_table()
     st.title("📰 원본 주제 카드뉴스")
-    st.caption("영상내용분석의 해석 슬롯을 쓰되, 최종 카피는 카드뉴스용 문장으로 다시 씁니다.")
+    st.caption("헤드카피와 바디카피를 분리하고, 사건 맥락에 맞는 엔딩 문구를 자동 생성합니다.")
     refs = load_references()
     if refs.empty:
         st.warning("먼저 YouTube 영상 내용 분석에서 원본 해석 결과를 저장하세요.")
@@ -693,7 +723,7 @@ def main():
             update_state(plan, signature, force=True)
             st.rerun()
     with col_info:
-        st.info("이제 원본의 해석 슬롯은 참고하되, 최종 카드 카피는 사건별 카피라이터 레이어에서 다시 정리합니다.")
+        st.info("카피는 헤드카피/바디카피로 나뉘며, 6장은 사건 맥락에 맞는 질문형 엔딩으로 자동 조정됩니다.")
 
     st.markdown("---")
     draft = st.session_state.get("original_topic_plan", plan)
