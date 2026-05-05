@@ -41,22 +41,24 @@ NOISE_WORDS = set([
     "왜", "어떻게", "이런", "그런", "저런", "합니다", "있습니다", "있고", "있는", "하면",
     "해서", "하는", "제가", "우리", "여기", "거죠", "거예요", "겁니다", "하나", "같은", "정도",
     "사람", "사람들", "부분", "대한", "통해", "관련", "모든", "제대로", "사실", "말씀",
+    "화면", "현재", "당장", "과연", "여러분의", "박제되어", "가리고", "있을까요",
 ])
-
 DOMAIN_HINTS = {
-    "시장/투자": ["코인", "비트코인", "주식", "시장", "투자", "가격", "섹터", "급등", "하락", "차트"],
-    "기업/주식": ["주가", "시총", "상장", "고점", "저점", "실적", "매출", "영업손실", "전환사채", "공시", "금양", "2차전지", "배터리", "리튬"],
+    "시장/투자": ["코인", "비트코인", "주식", "시장", "투자", "가격", "차트", "급등", "급락", "상승", "하락"],
+    "기업/주식": ["주가", "시총", "상장", "고점", "저점", "실적", "매출", "영업손실", "전환사채", "공시", "배터리", "리튬", "2차전지"],
     "영상/마케팅": ["영상", "촬영", "편집", "마케팅", "브랜드", "광고", "콘텐츠", "유튜브", "전환", "CTA"],
     "기술/AI": ["ai", "인공지능", "기술", "개발", "앱", "서비스", "툴", "자동화", "모델"],
-    "교육/노하우": ["방법", "노하우", "배우", "강의", "튜토리얼", "체크리스트", "공부", "설명"],
+    "교육/노하우": ["방법", "노하우", "강의", "튜토리얼", "체크리스트", "공부", "설명"],
     "사건/논쟁": ["노조", "회사", "직원", "시민", "공장", "사건", "논란", "갈등", "반발", "요구", "법정", "기증", "주차장", "파업", "성과급"],
-    "트렌드/이슈": ["요즘", "논란", "이슈", "트렌드", "화제", "사람들", "커뮤니티", "밈"],
+    "트렌드/이슈": ["요즘", "논란", "이슈", "트렌드", "화제", "커뮤니티", "밈"],
 }
 
-CORE_ACTORS = ["삼성", "삼성전자", "금양", "회사", "직원", "노조", "투자자", "개미", "주주", "경영진", "정부", "시민", "안양시", "공장", "소비자"]
-CLAIM_TOKENS = ["핵심", "문제", "이유", "결국", "사실", "중요", "다릅니다", "아닙니다", "하지만", "놓치", "실수", "반대로", "선언", "대답", "요구", "몰락", "폭락", "급락"]
-EVENT_TOKENS = ["처음", "시작", "어느 날", "그런데", "하지만", "이후", "결국", "나중에", "현재", "당시", "그때", "먼저", "마침내", "갑자기", "선언", "요구", "파업", "폭락", "급락", "상승", "하락", "몰락"]
-EVIDENCE_TOKENS = ["근거", "수치", "%", "데이터", "조사", "연구", "사례", "예를", "보면", "기증", "주차장", "법정", "요구", "조건", "15%", "45조", "93%", "70%", "5억", "19만원", "9천원", "시총", "주가", "실적", "매출", "적자", "전환사채", "공시", "플러그", "전원", "파업"]
+RESULT_TOKENS = ["폭락", "급락", "하락", "무너", "몰락", "붕괴", "떨어", "빠졌", "상승", "급등", "올랐", "커졌", "확산", "논란", "문제", "위기", "전환", "바뀌"]
+EXPECTATION_TOKENS = ["기대", "미래", "성장", "스토리", "전망", "호재", "비전", "사업", "개발", "투자", "가능성", "약속", "꿈", "계획", "수혜", "테마"]
+REALITY_TOKENS = ["실적", "매출", "영업", "적자", "손실", "부채", "현금", "공시", "자금", "전환사채", "유상증자", "비용", "리스크", "위험", "문제", "지연", "실패", "논란", "검증", "현실"]
+CONFLICT_TOKENS = ["하지만", "그런데", "반면", "문제는", "그러나", "결국", "다만", "반대로", "충돌", "갈등", "요구", "반발", "대신", "대립"]
+STAKEHOLDER_TOKENS = ["투자자", "주주", "개미", "회사", "경영진", "직원", "노조", "정부", "소비자", "시민", "고객", "시장", "기관", "외국인"]
+NUM_PATTERN = re.compile(r"\d+(?:[,.]\d+)?\s*(?:만원|천원|원|조|억|%|배|년|개월|명|개|건|위|달러|USDT)?")
 
 
 def connect_db():
@@ -150,7 +152,7 @@ def clean(value, fallback=""):
     return text or fallback
 
 
-def shorten(text, max_len=180):
+def shorten(text, max_len=170):
     text = re.sub(r"\s+", " ", clean(text)).strip()
     return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
 
@@ -215,19 +217,15 @@ def dedup_sentences(sentences, limit=8, threshold=0.42):
     return picked, removed
 
 
-def focus_score(sentence, focus_tokens):
-    if not focus_tokens:
-        return 0
-    s = sentence.lower()
-    return sum(4 for token in focus_tokens if token and token in s)
-
-
 def has_any(text, words):
     return any(word in clean(text) for word in words)
 
 
-def has_count(text, words):
-    return sum(1 for word in words if word in clean(text))
+def score_sentence(sentence, tokens):
+    score = 0
+    score += sum(3 for token in tokens if token in sentence)
+    score += min(5, len(NUM_PATTERN.findall(sentence)))
+    return score
 
 
 def get_video_id(url):
@@ -256,12 +254,6 @@ def fetch_oembed(url):
         return clean(data.get("title"), "YouTube 영상"), clean(data.get("author_name"), "YouTube")
     except Exception:
         return "YouTube 영상", "YouTube"
-
-
-def list_available_transcripts(video_id):
-    ytt_api = YouTubeTranscriptApi()
-    transcript_list = ytt_api.list(video_id)
-    return [{"language": getattr(t, "language", ""), "language_code": getattr(t, "language_code", ""), "is_generated": getattr(t, "is_generated", ""), "is_translatable": getattr(t, "is_translatable", "")} for t in transcript_list]
 
 
 def fetched_transcript_to_text(fetched):
@@ -300,8 +292,6 @@ def fetch_transcript(video_id, languages):
                 pass
         if transcript is None:
             available_codes = [item["language_code"] for item in debug["available_transcripts"] if item.get("language_code")]
-            if not available_codes:
-                raise ValueError("사용 가능한 자막 목록이 비어 있습니다.")
             transcript = transcript_list.find_transcript([available_codes[0]])
         text = fetched_transcript_to_text(transcript.fetch())
         if not text:
@@ -311,6 +301,12 @@ def fetch_transcript(video_id, languages):
         debug["error_stage"] = "fallback_failed"
         debug["error_message"] = repr(fallback_error)
         raise
+
+
+def list_available_transcripts(video_id):
+    ytt_api = YouTubeTranscriptApi()
+    transcript_list = ytt_api.list(video_id)
+    return [{"language": getattr(t, "language", ""), "language_code": getattr(t, "language_code", ""), "is_generated": getattr(t, "is_generated", ""), "is_translatable": getattr(t, "is_translatable", "")} for t in transcript_list]
 
 
 def build_chunks(text, max_chars=750):
@@ -336,278 +332,250 @@ def cite_sentence(sentence, chunks):
     return shorten(sentence, 170)
 
 
-def cite_list(sentences, chunks, limit=5):
-    return [cite_sentence(s, chunks) for s in sentences[:limit] if clean(s)]
+def clean_citation(text):
+    return re.sub(r"\s*\[[sS]\d+\]\s*$", "", clean(text)).strip()
 
 
 def detect_domain(title, transcript, selected):
     if selected not in ["자동 감지", "직접 입력"]:
         return selected
-    text = f"{title} {transcript[:4000]}".lower()
+    text = f"{title} {transcript[:5000]}".lower()
     scores = {domain: sum(1 for hint in hints if hint.lower() in text) for domain, hints in DOMAIN_HINTS.items()}
     top = max(scores.items(), key=lambda x: x[1])
     return top[0] if top[1] > 0 else "트렌드/이슈"
 
 
-def detect_event_type(title, transcript, keywords):
-    corpus = f"{title} {transcript[:7000]} {' '.join(keywords)}"
-    stock_terms = ["주가", "시총", "상장", "고점", "저점", "19만원", "9천원", "만원", "원까지", "폭락", "급락", "몰락", "금양", "전환사채", "실적", "매출", "적자", "공시", "배터리", "리튬", "2차전지"]
-    if has_count(corpus, stock_terms) >= 3:
-        return "corporate_stock_collapse"
-
-    samsung_names = ["삼성", "삼성전자"]
-    labor_terms = ["노조", "성과급", "파업", "직원", "영업이익", "영업 이익"]
-    response_terms = ["플러그", "전원", "폐쇄", "가전라인", "생산라인", "45조", "15%"]
-    if has_any(corpus, samsung_names) and has_any(corpus, labor_terms) and has_any(corpus, response_terms):
-        return "samsung_labor"
-
-    if has_any(corpus, ["안양", "삼덕", "공원", "기증", "주차장", "부지"]):
-        return "park_donation"
-    if has_any(corpus, ["노조", "직원", "회사", "갈등", "파업", "반발", "성과급"]):
-        return "labor_conflict"
-    if has_any(corpus, ["소송", "법원", "법정", "재판"]):
-        return "legal_conflict"
-    if has_any(corpus, ["시장", "투자", "가격", "차트", "상승", "하락", "급등", "급락"]):
-        return "market_analysis"
-    return "general"
+def pick_best(sentences, tokens, fallback=""):
+    scored = [(score_sentence(s, tokens), idx, s) for idx, s in enumerate(sentences)]
+    scored = [item for item in scored if item[0] > 0]
+    if not scored:
+        return fallback
+    scored.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+    return scored[0][2]
 
 
-def detect_source_kind(domain, transcript, event_type):
-    text = transcript[:5000]
-    if event_type in ["corporate_stock_collapse", "market_analysis"] or domain in ["시장/투자", "기업/주식"]:
-        return "시장/기업 분석형"
-    if event_type != "general" or domain == "사건/논쟁":
-        return "사건형"
-    if any(t in text for t in ["방법", "단계", "따라", "먼저", "체크"]):
-        return "튜토리얼/노하우형"
-    if any(t in text for t in ["비교", "장점", "단점", "후기", "리뷰"]):
-        return "리뷰/비교형"
-    return "이슈해설형"
-
-
-def find_sentences_with(text, tokens, limit=8, focus_tokens=None):
-    focus_tokens = focus_tokens or []
-    sentences = split_sentences(text)
-    picked = []
-    for sentence in sentences:
-        if any(token in sentence for token in tokens) or focus_score(sentence, focus_tokens) > 0:
-            picked.append(sentence)
-    deduped, _ = dedup_sentences(picked, limit=limit)
-    return deduped
-
-
-def pick_scored_sentences(text, keywords, tokens=None, focus_tokens=None, limit=10):
-    tokens = tokens or []
-    focus_tokens = focus_tokens or []
-    scored = []
-    for idx, sentence in enumerate(split_sentences(text)):
-        score = sum(1 for kw in keywords if kw in sentence.lower())
-        score += focus_score(sentence, focus_tokens)
-        score += 4 if any(token in sentence for token in tokens) else 0
-        score += 2 if any(token in sentence for token in CLAIM_TOKENS) else 0
-        score += max(0, 2.0 - idx * 0.01)
-        scored.append((score, sentence))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    candidates = [s for score, s in scored if score > 0]
-    picked, _ = dedup_sentences(candidates, limit=limit)
+def pick_many(sentences, tokens, limit=8):
+    scored = [(score_sentence(s, tokens), idx, s) for idx, s in enumerate(sentences)]
+    scored = [item for item in scored if item[0] > 0]
+    scored.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+    picked, _ = dedup_sentences([s for _, _, s in scored], limit=limit)
     return picked
 
 
-def make_actor_map(transcript, chunks, focus_tokens=None):
-    result = []
-    for actor in CORE_ACTORS:
-        sentences = find_sentences_with(transcript, [actor], limit=3, focus_tokens=focus_tokens)
-        if sentences:
-            result.append({"actor": actor, "role_or_position": cite_sentence(sentences[0], chunks), "related_quotes": cite_list(sentences, chunks, 3)})
-    unique, seen = [], set()
-    for item in result:
-        if item["actor"] in seen:
-            continue
-        seen.add(item["actor"])
-        unique.append(item)
-    if not unique:
-        unique.append({"actor": "원본 화자/시청자", "role_or_position": "원본에서 명확한 등장 주체가 적게 드러납니다", "related_quotes": []})
-    return unique[:8]
+def extract_subject(title, keywords, transcript):
+    source = title if not is_bad_title(title) else " ".join(keywords[:8])
+    words = re.findall(r"[가-힣A-Za-zA-Z0-9]{2,}", source)
+    filtered = [w for w in words if w.lower() not in NOISE_WORDS and not NUM_PATTERN.fullmatch(w)]
+    if filtered:
+        return filtered[0]
+    return keywords[0] if keywords else "이 주제"
 
 
-def make_timeline(transcript, chunks, keywords, focus_tokens=None):
-    tokens = EVENT_TOKENS + ["기증", "만들", "요구", "반발", "들어섰", "망하", "닫", "문", "이용", "뽑아", "선언", "대신", "파업", "성과급", "폐쇄", "정부", "상장", "고점", "저점", "폭락", "공시", "전환사채", "적자"]
-    sentences = find_sentences_with(transcript, tokens, limit=12, focus_tokens=focus_tokens)
-    if not sentences:
-        sentences = pick_scored_sentences(transcript, keywords, limit=7, focus_tokens=focus_tokens)
-    return [{"step": idx, "event": cite_sentence(sentence, chunks)} for idx, sentence in enumerate(sentences[:8], start=1)]
+def infer_mode(domain, sentences):
+    corpus = " ".join(sentences[:80])
+    if domain in ["시장/투자", "기업/주식"] or has_any(corpus, ["주가", "가격", "시총", "상장", "차트", "고점", "저점", "투자자"]):
+        return "market_or_company_shift"
+    if has_any(corpus, ["노조", "직원", "회사", "반발", "요구", "파업", "갈등", "소송", "법원"]):
+        return "stakeholder_conflict"
+    if has_any(corpus, ["방법", "노하우", "체크", "순서", "단계", "해야", "하지 마"]):
+        return "howto_or_warning"
+    return "issue_context"
 
 
-def extract_fact_cards(transcript, chunks, keywords, focus_tokens=None):
-    sentences = pick_scored_sentences(transcript, keywords, limit=14, tokens=EVIDENCE_TOKENS, focus_tokens=focus_tokens)
-    cards, used = [], set()
-    for sentence in sentences:
-        plain = shorten(sentence, 170)
-        key = re.sub(r"[^가-힣A-Za-z0-9]", "", plain[:75])
-        if key in used:
-            continue
-        used.add(key)
-        cards.append({"fact": plain, "source": cite_sentence(sentence, chunks)})
-        if len(cards) >= 9:
-            break
-    return cards
+def build_context_profile(title, transcript, keywords, domain, focus_tokens, chunks):
+    sentences = split_sentences(transcript)
+    subject = extract_subject(title, keywords, transcript)
+    mode = infer_mode(domain, sentences)
+    title_sentence = title if not is_bad_title(title) else ""
+    result_sentence = title_sentence or pick_best(sentences, RESULT_TOKENS + ["에서", "까지"], fallback=sentences[0] if sentences else subject)
+    metric_sentence = pick_best(sentences, RESULT_TOKENS + ["만원", "천원", "%", "조", "억", "시총", "고점", "저점", "폭락", "급락"], fallback=result_sentence)
+    expectation_sentence = pick_best(sentences, EXPECTATION_TOKENS, fallback="")
+    reality_sentence = pick_best(sentences, REALITY_TOKENS, fallback="")
+    conflict_sentence = pick_best(sentences, CONFLICT_TOKENS + REALITY_TOKENS, fallback=reality_sentence or result_sentence)
+    stakeholder_sentences = pick_many(sentences, STAKEHOLDER_TOKENS, limit=7)
+    evidence_sentences = pick_many(sentences, RESULT_TOKENS + EXPECTATION_TOKENS + REALITY_TOKENS + CONFLICT_TOKENS + STAKEHOLDER_TOKENS, limit=10)
+    number_sentences = [s for s in sentences if NUM_PATTERN.search(s)]
+    if number_sentences:
+        evidence_sentences = dedup_sentences(number_sentences[:8] + evidence_sentences, limit=10)[0]
 
+    def cited(s):
+        return cite_sentence(s, chunks) if s else ""
 
-def fact_value(facts, tokens, fallback=""):
-    for fact in facts:
-        text = fact.get("source", "") if isinstance(fact, dict) else str(fact)
-        if has_any(text, tokens):
-            return text
-    return fallback
-
-
-def topic_from_source(title, event_type, keywords, facts):
-    if not is_bad_title(title):
-        title_clean = re.sub(r"[\"“”']", "", title).strip()
-        if len(title_clean) > 8:
-            return title_clean
-    if event_type == "corporate_stock_collapse":
-        company = "금양" if "금양" in " ".join(keywords) or "금양" in title else "기업"
-        return f"{company} 주가 급락과 기대감 붕괴"
-    if event_type == "samsung_labor":
-        return "삼성 가전라인 폐쇄 발언과 노조 성과급 갈등"
-    if event_type == "park_donation":
-        return "공원이라는 미담 뒤에 숨은 기부와 노사 갈등"
-    if event_type == "labor_conflict":
-        return "회사와 직원·노조 사이에 벌어진 갈등"
-    filtered = [kw for kw in keywords if kw not in NOISE_WORDS][:4]
-    return f"{', '.join(filtered)} 중심의 이야기" if filtered else "원본에 담긴 핵심 이야기"
-
-
-def build_interpretation_slots(event_type, original_topic, primary_claim, facts, actor_map, conditions):
-    actors = [a.get("actor", "") for a in actor_map if isinstance(a, dict)]
-    actor_line = ", ".join([a for a in actors if a][:4]) or "여러 이해관계자"
-
-    if event_type == "corporate_stock_collapse":
-        price = fact_value(facts, ["19만원", "9천원", "주가", "고점", "저점", "폭락", "급락"], "고점의 기대가 사라지며 가격이 크게 무너진 흐름이 핵심입니다")
-        story = fact_value(facts, ["배터리", "리튬", "2차전지", "사업", "미래", "기대"], "주가를 밀어올린 것은 현재 실적보다 미래 성장 스토리에 가까웠습니다")
-        numbers = fact_value(facts, ["실적", "매출", "적자", "영업손실", "손실", "공시"], "하지만 숫자가 기대를 따라오지 못하면서 시장의 시선이 바뀌었습니다")
-        financing = fact_value(facts, ["전환사채", "CB", "유상증자", "자금", "부채", "현금"], "자금 조달과 재무 부담도 투자자들이 다시 확인해야 할 변수로 떠올랐습니다")
-        tension = "미래 성장 스토리로 올라간 주가와, 실제 숫자·자금·사업 진행 속도가 버티지 못한 간극"
-        return {
-            "original_topic": original_topic,
-            "main_topic_sentence": f"{original_topic}: {tension}",
-            "audience_pain": "시청자는 고점 대비 폭락률과 분노부터 보지만, 정작 중요한 것은 어떤 기대가 주가를 밀어올렸고 어떤 숫자와 사업 리스크가 그 기대를 무너뜨렸는지입니다.",
-            "hidden_assumption": "주가가 크게 올랐다는 것은 사업 가치도 이미 검증됐다는 전제가 숨어 있지만, 실제 시장은 스토리보다 실적·현금흐름·사업 진행 속도를 다시 묻습니다.",
-            "contradiction_or_tension": tension,
-            "emotional_trigger": "19만원에서 9천원처럼 극단적인 가격 낙차가 먼저 충격을 만들고, 그 뒤에 기대감과 실제 숫자의 차이가 드러나며 불안과 분노를 자극합니다.",
-            "viral_hook_logic": "고점과 저점의 가격 낙차를 먼저 보여준 뒤, 상승을 만든 미래 스토리와 하락을 만든 실적·자금·사업 리스크를 순서대로 공개하는 구조입니다.",
-            "narrative_structure": "고점 대비 폭락 제시 → 과거 기대감 공개 → 실제 숫자 확인 → 자금·사업 리스크 분석 → 투자자가 놓친 전제 정리 → 다음 판단 기준 질문",
-            "reusable_structure": "극단적인 결과로 멈춰 세우고, 그 결과를 만든 기대와 숫자의 괴리를 분해한 뒤, 마지막에 투자자가 확인해야 할 기준으로 닫는 구조",
-            "slide_seed": {
-                "slide_1": "19만원에서 9천원까지\n무너진 건 가격만이 아니었습니다",
-                "slide_2": f"처음엔 미래 성장 스토리가 있었습니다. {shorten(story, 95)}",
-                "slide_3": f"하지만 숫자는 기대를 따라오지 못했습니다. {shorten(numbers, 95)}",
-                "slide_4": f"주가가 무너진 뒤 시장은 자금과 리스크를 보기 시작했습니다. {shorten(financing, 95)}",
-                "slide_5": f"핵심은 가격이 아니라 기대와 현실의 간극입니다. {shorten(price, 95)}",
-                "slide_6": "이건 저가 매수 기회일까요, 아직 끝나지 않은 리스크일까요?",
-            },
-            "fact_roles": {"price_drop": price, "growth_story": story, "numbers": numbers, "financing_or_risk": financing},
-        }
-
-    if event_type == "samsung_labor":
-        demand = fact_value(facts, ["15%", "성과급", "영업 이익", "영업이익"], "노조는 회사 이익의 일부를 성과급으로 돌려달라고 요구했습니다")
-        amount = fact_value(facts, ["45조"], "요구 규모는 단순한 보너스 논쟁을 넘어선 수준으로 커졌습니다")
-        plug = fact_value(facts, ["플러그", "전원", "폐쇄", "가전라인", "생산라인"], "회사는 생산 라인 중단까지 언급하는 강한 방식으로 맞섰습니다")
-        strike = fact_value(facts, ["파업", "93%", "찬성"], "갈등은 파업 논의와 여론전으로 번졌습니다")
-        gov = fact_value(facts, ["정부", "주무부처", "70%", "경쟁력"], "정부와 여론도 이 문제를 산업 경쟁력과 연결해 보기 시작했습니다")
-        conflict = "현재 이익을 직원에게 나눌 것인가, 미래 투자를 위해 비용을 통제할 것인가의 충돌"
-        return {
-            "original_topic": original_topic,
-            "main_topic_sentence": f"{original_topic}: {conflict}",
-            "audience_pain": "시청자는 삼성과 노조의 싸움이라는 자극적인 구도만 먼저 보지만, 실제 쟁점은 성과급 요구, 거대 숫자, 생산라인 중단 발언, 파업 여론, 미래 투자 논리가 함께 얽힌 구조입니다.",
-            "hidden_assumption": "회사가 큰돈을 벌었으면 직원에게 더 많이 나눠야 한다는 전제와, 제조 경쟁력을 지키려면 지금의 현금 유출을 통제해야 한다는 전제가 정면으로 부딪힙니다.",
-            "contradiction_or_tension": conflict,
-            "emotional_trigger": "15%, 45조, 생산라인 플러그, 파업 찬성률처럼 숫자와 이미지가 강하게 부딪히며 ‘누가 맞는가’를 판단하고 싶게 만듭니다.",
-            "viral_hook_logic": "가장 강한 장면인 생산라인 중단 발언을 먼저 제시한 뒤, 성과급 15% 요구와 45조 규모, 파업 여론, 정부·산업 경쟁력 이슈를 순서대로 공개하는 반전형 후킹입니다.",
-            "narrative_structure": "충격 발언 제시 → 성과급 요구 공개 → 45조라는 숫자 확대 → 회사의 강경 대응 → 파업·정부·여론 확산 → 돈 싸움인지 생존 전략인지 질문",
-            "reusable_structure": "강한 발언으로 멈춰 세우고, 요구 조건과 숫자를 보여준 뒤, 이해관계자의 논리를 충돌시켜 마지막에 독자가 판단하게 만드는 구조",
-            "slide_seed": {"slide_1": "삼성은 왜 직원들과 정면충돌했을까요?", "slide_2": f"시작은 성과급이었습니다. {shorten(demand, 95)}", "slide_3": f"하지만 숫자는 커졌습니다. {shorten(amount, 95)}", "slide_4": f"회사의 대답은 차가웠습니다. {shorten(plug, 95)}", "slide_5": f"갈등은 회사 밖으로 번졌습니다. {shorten(strike or gov, 95)}", "slide_6": "이건 돈 싸움일까요, 미래 생존 전략일까요?"},
-            "fact_roles": {"demand": demand, "amount": amount, "company_response": plug, "strike_or_public": strike, "government_or_industry": gov},
-        }
-
-    if event_type == "park_donation":
-        park = fact_value(facts, ["공원", "주차장", "안양"], "지금은 시민들이 이용하는 평화로운 공원으로 남아 있습니다")
-        donation = fact_value(facts, ["기증", "부지"], "이 공간은 한 기업의 부지 기증에서 시작됐습니다")
-        union = fact_value(facts, ["노조", "반발", "직원"], "하지만 내부에서는 직원과 노조의 반발도 있었습니다")
-        conflict = "시민에게 남은 공익적 결과와 내부 구성원이 느낀 생존 불안이 충돌한 구조"
-        return {
-            "original_topic": original_topic,
-            "main_topic_sentence": f"{original_topic}: {conflict}",
-            "audience_pain": "시청자는 공원이라는 아름다운 결과만 기억하기 쉽지만, 그 공간이 만들어지는 과정에 있었던 기업의 결정, 내부 구성원의 불안, 지역사회 이익을 함께 보지 못하기 쉽습니다.",
-            "hidden_assumption": "좋은 결과로 남은 공간이라면 그 과정도 모두 좋은 이야기였을 것이라는 전제가 숨어 있습니다.",
-            "contradiction_or_tension": conflict,
-            "emotional_trigger": "평화로운 공원과 그 뒤에 있던 반발이 대비되며 미담의 뒷면을 확인하고 싶게 만듭니다.",
-            "viral_hook_logic": "현재의 아름다운 공원을 먼저 보여준 뒤, 그 공간을 만든 기부와 내부 반발을 뒤늦게 공개하는 반전형 후킹입니다.",
-            "narrative_structure": "현재 결과 제시 → 부지·기증 배경 → 내부 반발 등장 → 공익과 생존 불안 충돌 → 현재의 아이러니 → 질문",
-            "reusable_structure": "좋은 결과를 먼저 보여주고, 그 뒤에 있었던 이해관계를 단계적으로 벗겨내며 마지막에 미담을 다시 보게 만드는 구조",
-            "slide_seed": {"slide_1": "아름다운 공원에도 숨은 이야기가 있습니다", "slide_2": f"겉으로는 평화로운 공간입니다. {shorten(park, 95)}", "slide_3": f"하지만 시작은 기부였습니다. {shorten(donation, 95)}", "slide_4": f"그리고 내부에선 반발이 있었습니다. {shorten(union, 95)}", "slide_5": f"핵심은 이 충돌입니다. {conflict}", "slide_6": "미담만 보고 지나쳐도 될까요?"},
-            "fact_roles": {"public_result": park, "donation": donation, "internal_conflict": union},
-        }
-
-    if event_type == "market_analysis":
-        move = fact_value(facts, ["상승", "하락", "급등", "급락", "가격", "주가", "시장"], primary_claim)
-        reason = fact_value(facts, ["이유", "원인", "때문", "근거", "데이터"], "시장의 움직임에는 가격보다 먼저 확인해야 할 원인과 조건이 있습니다")
-        risk = fact_value(facts, ["리스크", "위험", "주의", "반대로", "하지만"], "반대 시나리오와 리스크를 함께 확인해야 합니다")
-        tension = "눈에 보이는 가격 움직임과 그 움직임을 만든 실제 근거 사이의 간극"
-        return {
-            "original_topic": original_topic,
-            "main_topic_sentence": f"{original_topic}: {tension}",
-            "audience_pain": "시청자는 상승과 하락이라는 결과에 먼저 반응하지만, 실제 대응에는 왜 움직였는지와 다음 확인 기준이 더 중요합니다.",
-            "hidden_assumption": "가격이 움직였다는 이유만으로 방향성이 이미 확정됐다고 보는 착각이 숨어 있습니다.",
-            "contradiction_or_tension": tension,
-            "emotional_trigger": "놓치면 안 될 것 같은 긴급감과, 반대로 물리면 안 된다는 불안이 동시에 작동합니다.",
-            "viral_hook_logic": "큰 가격 움직임을 먼저 보여준 뒤, 그 움직임을 만든 근거와 반대 리스크를 나눠 보여주는 구조입니다.",
-            "narrative_structure": "현재 움직임 제시 → 원인 분석 → 핵심 근거 → 리스크 → 다음 확인 기준 → 질문",
-            "reusable_structure": "결과를 먼저 보여주고, 원인과 리스크를 분해한 뒤, 마지막에 체크 기준으로 닫는 구조",
-            "slide_seed": {"slide_1": f"{original_topic}\n가격만 보면 놓치는 게 있습니다", "slide_2": f"먼저 움직임을 봐야 합니다. {shorten(move, 95)}", "slide_3": f"그 다음은 이유입니다. {shorten(reason, 95)}", "slide_4": f"리스크도 같이 봐야 합니다. {shorten(risk, 95)}", "slide_5": "핵심은 방향이 아니라 기준입니다", "slide_6": "당신은 지금 어떤 기준으로 보고 있나요?"},
-            "fact_roles": {"move": move, "reason": reason, "risk": risk},
-        }
-
-    fact1 = facts[0].get("source", "") if facts and isinstance(facts[0], dict) else (facts[0] if facts else primary_claim)
-    fact2 = facts[1].get("source", "") if len(facts) > 1 and isinstance(facts[1], dict) else (facts[1] if len(facts) > 1 else "갈등의 조건이 점점 커졌습니다")
-    conflict = f"{actor_line} 사이에서 요구와 책임이 충돌하는 구조"
-    if event_type not in ["labor_conflict", "legal_conflict"]:
-        conflict = "사람들이 보는 결론과 실제로 확인해야 할 기준 사이의 간극"
     return {
-        "original_topic": original_topic,
-        "main_topic_sentence": f"{original_topic}: {conflict}",
-        "audience_pain": f"시청자는 결론부터 판단하려 하지만, 먼저 봐야 할 것은 이 사건을 움직인 주체와 조건입니다.",
-        "hidden_assumption": "한쪽이 선명하게 옳아 보이는 사건에도, 실제로는 각 주체가 감수해야 할 비용과 위험이 따로 존재합니다.",
-        "contradiction_or_tension": conflict,
-        "emotional_trigger": "강한 주장과 반대 논리가 부딪히며 독자가 어느 편이 설득력 있는지 판단하고 싶게 만듭니다.",
-        "viral_hook_logic": "가장 자극적인 결과나 주장을 먼저 보여주고, 이후 각 주체의 이해관계를 분해해 독자가 다시 판단하게 만드는 구조입니다.",
-        "narrative_structure": "강한 장면 제시 → 조건 공개 → 이해관계자 분해 → 충돌 지점 확대 → 현재 쟁점 정리 → 질문",
-        "reusable_structure": "결과와 주장을 먼저 세우고, 각 주체의 손익을 비교한 뒤, 마지막에 판단 질문으로 닫는 구조",
-        "slide_seed": {"slide_1": f"{original_topic}\n결론부터 보면 놓치는 게 있습니다", "slide_2": fact1, "slide_3": fact2, "slide_4": conflict, "slide_5": "이 사건은 요구와 책임이 충돌한 이야기입니다", "slide_6": "당신은 어느 쪽의 논리가 더 설득력 있나요?"},
-        "fact_roles": {"fact1": fact1, "fact2": fact2},
+        "subject": subject,
+        "mode": mode,
+        "result_signal": cited(result_sentence),
+        "metric_signal": cited(metric_sentence),
+        "expectation_signal": cited(expectation_sentence),
+        "reality_signal": cited(reality_sentence),
+        "conflict_signal": cited(conflict_sentence),
+        "stakeholder_signals": [cited(s) for s in stakeholder_sentences],
+        "evidence_signals": [cited(s) for s in evidence_sentences],
     }
 
 
-def build_cardnews_seed(slots, timeline, fact_cards):
-    slide_seed = slots.get("slide_seed", {})
+def phrase_from_signal(signal, fallback):
+    text = clean_citation(signal)
+    text = re.sub(r"^하지만\s*", "", text)
+    text = re.sub(r"^그런데\s*", "", text)
+    return shorten(text, 95) if text else fallback
+
+
+def build_dynamic_slots(original_topic, primary_claim, profile, conditions):
+    subject = profile["subject"]
+    mode = profile["mode"]
+    result = phrase_from_signal(profile["result_signal"], f"{subject}을 둘러싼 강한 결과")
+    metric = phrase_from_signal(profile["metric_signal"], result)
+    expectation = phrase_from_signal(profile["expectation_signal"], "사람들이 먼저 믿었던 기대와 서사")
+    reality = phrase_from_signal(profile["reality_signal"], "그 기대를 다시 검증하게 만든 현실 신호")
+    conflict = phrase_from_signal(profile["conflict_signal"], "결과와 원인 사이에서 드러난 충돌 지점")
+
+    if mode == "market_or_company_shift":
+        tension = f"{expectation}와 {reality} 사이의 간극"
+        audience_pain = f"시청자는 {metric}에 먼저 반응하지만, 실제 핵심은 그 결과를 만든 기대와 그 기대를 흔든 현실 신호를 함께 보는 것입니다."
+        hidden = f"가격이나 숫자가 크게 움직이면 이유도 이미 명확해 보이지만, 원문은 {expectation}가 어떻게 만들어졌고 {reality}가 어떻게 드러났는지를 같이 봐야 한다는 전제를 깔고 있습니다."
+        emotion = f"{metric}처럼 눈에 박히는 숫자나 결과가 충격을 만들고, 뒤이어 {reality}가 드러나면서 불안과 재판단 욕구를 자극합니다."
+        viral = f"가장 강한 결과인 {metric}을 먼저 보여준 뒤, 그 결과를 만든 기대({expectation})와 현실 검증({reality})을 순서대로 공개하는 구조입니다."
+        narrative = "강한 결과 제시 → 과거 기대 확인 → 현실 신호 공개 → 리스크/갈등 정리 → 판단 기준 제시 → 질문"
+        reusable = "큰 결과로 시선을 멈춰 세우고, 그 결과를 만든 기대와 현실의 간극을 분해한 뒤, 마지막에 독자가 판단할 기준으로 닫는 구조"
+        ending = "이건 다시 볼 기회일까요, 아직 확인해야 할 리스크일까요?"
+        slide_seed = {
+            "slide_1": f"{subject}\n무너진 건 숫자만이 아니었습니다",
+            "slide_2": f"처음엔 이런 기대가 있었습니다. {expectation}",
+            "slide_3": f"하지만 현실 신호가 따라붙었습니다. {reality}",
+            "slide_4": f"시장은 여기서 다시 계산하기 시작했습니다. {conflict}",
+            "slide_5": f"핵심은 가격이 아니라 간극입니다. {tension}",
+            "slide_6": ending,
+        }
+    elif mode == "stakeholder_conflict":
+        tension = f"{expectation}와 {conflict}가 부딪힌 구조"
+        audience_pain = f"시청자는 누가 맞는지부터 보지만, 실제로는 각 주체가 무엇을 요구했고 무엇을 감수해야 했는지 먼저 봐야 합니다."
+        hidden = f"겉으로는 한쪽의 잘잘못처럼 보이지만, 원문에는 {subject}을 둘러싼 요구와 책임의 배분 문제가 숨어 있습니다."
+        emotion = f"강한 요구와 반응이 부딪히며 독자가 어느 쪽 논리가 더 설득력 있는지 판단하고 싶게 만듭니다."
+        viral = f"가장 자극적인 충돌 장면을 먼저 보여주고, 그 뒤에 요구 조건과 이해관계, 현실적 비용을 차례대로 풀어내는 구조입니다."
+        narrative = "충돌 장면 제시 → 요구 조건 공개 → 이해관계자 분해 → 책임/비용 대립 → 현재 쟁점 정리 → 질문"
+        reusable = "한쪽 주장으로 시작하되, 상대 논리와 감수해야 할 비용을 함께 보여주며 독자가 판단하게 만드는 구조"
+        ending = "당신은 어느 쪽의 논리가 더 설득력 있다고 보시나요?"
+        slide_seed = {
+            "slide_1": f"{subject}\n겉으로 보이는 싸움이 전부는 아닙니다",
+            "slide_2": f"먼저 요구 조건을 봐야 합니다. {expectation or primary_claim}",
+            "slide_3": f"갈등은 여기서 커졌습니다. {conflict}",
+            "slide_4": f"각자 감수해야 할 비용이 달랐습니다. {reality}",
+            "slide_5": f"핵심은 누가 맞느냐보다 무엇을 잃느냐입니다. {tension}",
+            "slide_6": ending,
+        }
+    elif mode == "howto_or_warning":
+        tension = f"사람들이 쉽게 하는 판단과 실제로 확인해야 할 기준의 차이"
+        audience_pain = f"시청자는 결론이나 팁만 가져가려 하지만, 실제로는 왜 그렇게 해야 하는지와 언제 조심해야 하는지를 함께 알아야 합니다."
+        hidden = f"간단한 방법처럼 보여도, 원문에는 {reality or conflict} 같은 조건이 붙어 있습니다."
+        emotion = "몰랐던 기준을 발견했다는 느낌과 지금 바로 확인해야 한다는 긴급감이 생깁니다."
+        viral = "많이 하는 실수나 강한 결론을 먼저 던진 뒤, 이유와 적용 기준을 단계적으로 풀어내는 구조입니다."
+        narrative = "흔한 실수 제시 → 이유 설명 → 적용 조건 → 주의점 → 체크 기준 → 행동 유도"
+        reusable = "일상적 문제를 먼저 던지고, 원리와 조건을 설명한 뒤, 마지막에 체크리스트로 저장하게 만드는 구조"
+        ending = "이 기준을 알았다면, 다음엔 어디부터 확인하시겠어요?"
+        slide_seed = {
+            "slide_1": f"{subject}\n그냥 따라 하면 놓치는 게 있습니다",
+            "slide_2": f"먼저 이유를 봐야 합니다. {expectation or primary_claim}",
+            "slide_3": f"중요한 건 조건입니다. {reality or conflict}",
+            "slide_4": f"여기서 실수가 갈립니다. {conflict}",
+            "slide_5": f"정리하면 기준은 하나입니다. {tension}",
+            "slide_6": ending,
+        }
+    else:
+        tension = f"사람들이 본 결과와 실제로 확인해야 할 맥락 사이의 간극"
+        audience_pain = f"시청자는 {result}라는 결론에 먼저 반응하지만, 실제로는 그 결론을 만든 배경과 이해관계를 같이 봐야 합니다."
+        hidden = f"화제가 된 결과만 보면 중요한 이유가 이미 설명된 것처럼 보이지만, 원문에는 {conflict}라는 숨은 조건이 있습니다."
+        emotion = "익숙한 결론 뒤에 다른 맥락이 있었다는 반전감과 다시 판단하고 싶은 궁금증이 생깁니다."
+        viral = f"강한 결과({result})를 먼저 제시하고, 뒤이어 배경과 충돌 지점을 공개해 독자가 다시 보게 만드는 구조입니다."
+        narrative = "결과 제시 → 배경 공개 → 이해관계자 등장 → 충돌 지점 정리 → 판단 기준 제시 → 질문"
+        reusable = "결과로 후킹하고, 원인과 이해관계를 분해한 뒤, 마지막에 독자가 판단할 기준을 남기는 구조"
+        ending = "이 이야기를 다시 본다면, 가장 먼저 어떤 기준을 확인해야 할까요?"
+        slide_seed = {
+            "slide_1": f"{subject}\n결론만 보면 놓치는 게 있습니다",
+            "slide_2": f"먼저 배경을 봐야 합니다. {expectation or primary_claim}",
+            "slide_3": f"문제는 여기서 시작됩니다. {conflict}",
+            "slide_4": f"현실 신호도 같이 봐야 합니다. {reality}",
+            "slide_5": f"핵심은 이 간극입니다. {tension}",
+            "slide_6": ending,
+        }
+
+    return {
+        "original_topic": original_topic,
+        "main_topic_sentence": f"{original_topic}: {tension}",
+        "audience_pain": audience_pain,
+        "hidden_assumption": hidden,
+        "contradiction_or_tension": tension,
+        "emotional_trigger": emotion,
+        "viral_hook_logic": viral,
+        "narrative_structure": narrative,
+        "reusable_structure": reusable,
+        "slide_seed": slide_seed,
+        "fact_roles": {
+            "result_signal": profile["result_signal"],
+            "metric_signal": profile["metric_signal"],
+            "expectation_signal": profile["expectation_signal"],
+            "reality_signal": profile["reality_signal"],
+            "conflict_signal": profile["conflict_signal"],
+            "stakeholder_signals": profile["stakeholder_signals"],
+        },
+        "context_profile": profile,
+    }
+
+
+def build_actor_map(profile):
+    rows = []
+    for signal in profile.get("stakeholder_signals", [])[:7]:
+        plain = clean_citation(signal)
+        actor = "이해관계자"
+        for token in STAKEHOLDER_TOKENS:
+            if token in plain:
+                actor = token
+                break
+        rows.append({"actor": actor, "role_or_position": signal, "related_quotes": [signal]})
+    if not rows:
+        rows = [{"actor": profile.get("subject", "원본 주체"), "role_or_position": profile.get("result_signal", "원본의 중심 주체"), "related_quotes": [profile.get("result_signal", "")]}]
+    return rows
+
+
+def build_timeline(profile):
+    items = []
+    ordered = [
+        ("결과", profile.get("result_signal", "")),
+        ("기대", profile.get("expectation_signal", "")),
+        ("현실", profile.get("reality_signal", "")),
+        ("충돌", profile.get("conflict_signal", "")),
+    ]
+    seen = set()
+    for label, signal in ordered:
+        if not signal:
+            continue
+        key = clean_citation(signal)[:50]
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"step": len(items) + 1, "event": f"{label}: {signal}"})
+    for signal in profile.get("evidence_signals", [])[:6]:
+        key = clean_citation(signal)[:50]
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"step": len(items) + 1, "event": signal})
+        if len(items) >= 8:
+            break
+    return items
+
+
+def build_cardnews_seed(slots, timeline, evidence_points):
     return {
         "angle_candidates": [slots.get("original_topic", ""), slots.get("main_topic_sentence", "")],
         "problem_candidates": [slots.get("audience_pain", ""), slots.get("contradiction_or_tension", "")],
-        "slide_roles": list(slide_seed.keys()),
-        "slide_seed": slide_seed,
+        "slide_roles": list(slots.get("slide_seed", {}).keys()),
+        "slide_seed": slots.get("slide_seed", {}),
         "timeline_seeds": timeline[:6],
-        "fact_seeds": fact_cards[:8],
+        "fact_seeds": evidence_points[:8],
         "fact_roles": slots.get("fact_roles", {}),
+        "context_profile": slots.get("context_profile", {}),
     }
-
-
-def build_source_qa(analysis):
-    return [
-        {"question": "이 원본은 한 문장으로 무엇인가?", "answer": analysis["main_topic_sentence"], "basis": analysis["primary_claim"]},
-        {"question": "카드뉴스로 만들 때 가장 먼저 보여줄 포인트는?", "answer": analysis["contradiction_or_tension"], "basis": analysis["viral_hook_logic"]},
-        {"question": "독자가 놓치기 쉬운 부분은?", "answer": analysis["audience_pain"], "basis": analysis["hidden_assumption"]},
-    ]
 
 
 def interpret_source(title, channel_name, transcript, conditions):
@@ -616,43 +584,51 @@ def interpret_source(title, channel_name, transcript, conditions):
     focus_tokens = tokenize_focus(" ".join([conditions.get("focus_question", ""), conditions.get("focus_keywords", "")]))
     keywords = extract_keywords(clean_transcript, focus_tokens=focus_tokens)
     domain = detect_domain(title, clean_transcript, conditions["source_domain"])
-    event_type = detect_event_type(title, clean_transcript, keywords)
-    source_kind = detect_source_kind(domain, clean_transcript, event_type)
-    actor_map = make_actor_map(clean_transcript, chunks, focus_tokens)
-    fact_cards = extract_fact_cards(clean_transcript, chunks, keywords, focus_tokens)
-    timeline = make_timeline(clean_transcript, chunks, keywords, focus_tokens)
-    original_topic = topic_from_source(title, event_type, keywords, fact_cards)
-    claim_candidates = pick_scored_sentences(clean_transcript, keywords, limit=12, tokens=CLAIM_TOKENS + EVIDENCE_TOKENS, focus_tokens=focus_tokens)
-    primary_claim_raw = claim_candidates[0] if claim_candidates else original_topic
-    primary_claim = cite_sentence(primary_claim_raw, chunks)
-    slots = build_interpretation_slots(event_type, original_topic, primary_claim, fact_cards, actor_map, conditions)
-    original_topic = slots["original_topic"]
-    main_topic_sentence = slots["main_topic_sentence"]
-    sub_claims, dup_sub = dedup_sentences(claim_candidates[1:], limit=4)
-    sub_claims_cited = cite_list(sub_claims, chunks, 4)
-    evidence_points = [card["source"] for card in fact_cards]
-    cause_effect = [item["event"] for item in timeline[:5]]
-    risk_sentences = find_sentences_with(clean_transcript, ["주의", "위험", "리스크", "아닙니다", "하지만", "반대로", "조심", "법정", "망하", "폭락", "급락", "적자", "전환사채", "폐쇄"], 6, focus_tokens)
-    risk_notes = cite_list(risk_sentences, chunks, 5) or ["원문에서 단정하기 어려운 부분은 카드뉴스에서 과장하지 않는 편이 안전합니다"]
-    if conditions.get("avoid"):
-        risk_notes.append(f"제외 관점: {conditions['avoid']}")
-    summary_sentences, dup_summary = dedup_sentences(claim_candidates, limit=7 if conditions["detail_level"] in ["디테일", "매우 디테일"] else 5)
-    if not summary_sentences:
-        summary_sentences = [card.get("source", "") for card in fact_cards[:5]]
-    summary = "\n".join([f"- {cite_sentence(s, chunks) if '[' not in s else s}" for s in summary_sentences if clean(s)])
-    source_index = {"total_chunks": len(chunks), "top_keywords": keywords[:12], "focus_tokens": focus_tokens, "domain": domain, "source_kind": source_kind, "event_type": event_type, "chunk_preview": chunks[:5]}
-    dedup_report = {"removed_from_sub_claims": [shorten(s, 120) for s in dup_sub[:6]], "removed_from_summary": [shorten(s, 120) for s in dup_summary[:6]]}
-    cardnews_seed = build_cardnews_seed(slots, timeline, fact_cards)
-    context_background = f"분야: {domain}. 원본 유형: {source_kind}. 사건 유형: {event_type}. 관점: {conditions['viewpoint']}. 원문 충실도: {conditions['fidelity_level']}. 추론 허용도: {conditions['inference_level']}."
+    profile = build_context_profile(title, clean_transcript, keywords, domain, focus_tokens, chunks)
+    event_type = profile["mode"]
+    source_kind = {
+        "market_or_company_shift": "문맥형 시장/기업 분석",
+        "stakeholder_conflict": "문맥형 이해관계 갈등",
+        "howto_or_warning": "문맥형 노하우/경고",
+        "issue_context": "문맥형 이슈 해석",
+    }.get(event_type, "문맥형 원본 해석")
+
+    if not is_bad_title(title):
+        original_topic = re.sub(r"[\"“”']", "", title).strip()
+    else:
+        original_topic = f"{profile['subject']}을 둘러싼 핵심 변화"
+
+    primary_claim = profile.get("result_signal") or profile.get("metric_signal") or original_topic
+    slots = build_dynamic_slots(original_topic, primary_claim, profile, conditions)
+    timeline = build_timeline(profile)
+    actor_map = build_actor_map(profile)
+    evidence_points = profile.get("evidence_signals", [])[:10]
+    sub_claims = [s for s in [profile.get("expectation_signal"), profile.get("reality_signal"), profile.get("conflict_signal")] if s]
+    risk_notes = [s for s in evidence_points if has_any(s, REALITY_TOKENS + ["주의", "위험", "리스크"])] or ["원문 밖 단정은 피하고, 원문에서 확인된 결과·기대·현실 신호만 사용하세요."]
+    summary_lines = [slots["main_topic_sentence"], slots["audience_pain"], slots["contradiction_or_tension"], slots["viral_hook_logic"]]
+    summary = "\n".join([f"- {line}" for line in summary_lines if clean(line)])
+    cardnews_seed = build_cardnews_seed(slots, timeline, evidence_points)
+    source_index = {
+        "total_chunks": len(chunks),
+        "top_keywords": keywords[:12],
+        "focus_tokens": focus_tokens,
+        "domain": domain,
+        "source_kind": source_kind,
+        "event_type": event_type,
+        "context_profile": profile,
+        "chunk_preview": chunks[:5],
+    }
+    dedup_report = {"logic": "fixed event branch removed; generated from result/expectation/reality/conflict context slots", "removed_fixed_templates": True}
+    context_background = f"분야: {domain}. 원본 유형: {source_kind}. 문맥 모드: {event_type}. 관점: {conditions['viewpoint']}. 원문 충실도: {conditions['fidelity_level']}. 추론 허용도: {conditions['inference_level']}."
     if conditions.get("memo"):
         context_background += f" 메모: {conditions['memo']}"
     analysis = {
         "summary": summary,
         "key_claim": primary_claim,
-        "hook_point": cite_sentence(split_sentences(clean_transcript)[0], chunks) if split_sentences(clean_transcript) else original_topic,
+        "hook_point": profile.get("result_signal") or original_topic,
         "structure_note": slots["narrative_structure"],
         "visual_note": "원본 주제 카드뉴스 메뉴에서 이미지 비율, 스타일, 카피 포함 여부를 선택해 재가공",
-        "eafi_application": f"{main_topic_sentence} 원본 해석 데이터를 바탕으로 원본 주제 카드뉴스 메뉴에서 카드뉴스 설계 가능",
+        "eafi_application": f"{slots['main_topic_sentence']} 원본 해석 데이터를 바탕으로 원본 주제 카드뉴스 메뉴에서 카드뉴스 설계 가능",
         "keywords": ", ".join(keywords),
         "source_domain": domain,
         "source_kind": source_kind,
@@ -660,15 +636,15 @@ def interpret_source(title, channel_name, transcript, conditions):
         "clean_transcript": clean_transcript,
         "source_chunks": json.dumps(chunks, ensure_ascii=False),
         "source_index": json.dumps(source_index, ensure_ascii=False, indent=2),
-        "original_topic": original_topic,
-        "main_topic_sentence": main_topic_sentence,
+        "original_topic": slots["original_topic"],
+        "main_topic_sentence": slots["main_topic_sentence"],
         "primary_claim": primary_claim,
-        "sub_claims": json.dumps(sub_claims_cited, ensure_ascii=False),
+        "sub_claims": json.dumps(sub_claims, ensure_ascii=False),
         "evidence_points": json.dumps(evidence_points, ensure_ascii=False),
         "context_background": context_background,
         "event_timeline": json.dumps(timeline, ensure_ascii=False),
         "actor_map": json.dumps(actor_map, ensure_ascii=False),
-        "cause_effect_chain": json.dumps(cause_effect, ensure_ascii=False),
+        "cause_effect_chain": json.dumps([x["event"] for x in timeline], ensure_ascii=False),
         "audience_pain": slots["audience_pain"],
         "hidden_assumption": slots["hidden_assumption"],
         "contradiction_or_tension": slots["contradiction_or_tension"],
@@ -681,8 +657,12 @@ def interpret_source(title, channel_name, transcript, conditions):
         "interpretation_slots": json.dumps(slots, ensure_ascii=False, indent=2),
         "dedup_report": json.dumps(dedup_report, ensure_ascii=False, indent=2),
     }
-    analysis["source_grounded_qa"] = json.dumps(build_source_qa(analysis), ensure_ascii=False, indent=2)
-    interpretation_report = {"conditions": conditions, "source_index": source_index, "dedup_report": dedup_report, "interpretation_slots": slots, "actor_map": actor_map, "event_timeline": timeline, "fact_cards": fact_cards, "cardnews_seed": cardnews_seed}
+    analysis["source_grounded_qa"] = json.dumps([
+        {"question": "이 원본은 한 문장으로 무엇인가?", "answer": analysis["main_topic_sentence"], "basis": analysis["primary_claim"]},
+        {"question": "카드뉴스로 만들 때 가장 먼저 보여줄 포인트는?", "answer": profile.get("result_signal", ""), "basis": analysis["viral_hook_logic"]},
+        {"question": "독자가 놓치기 쉬운 부분은?", "answer": analysis["audience_pain"], "basis": analysis["hidden_assumption"]},
+    ], ensure_ascii=False, indent=2)
+    interpretation_report = {"conditions": conditions, "source_index": source_index, "dedup_report": dedup_report, "interpretation_slots": slots, "actor_map": actor_map, "event_timeline": timeline, "evidence_points": evidence_points, "cardnews_seed": cardnews_seed}
     analysis["interpretation_report"] = json.dumps(interpretation_report, ensure_ascii=False, indent=2)
     return analysis
 
@@ -726,7 +706,7 @@ def convert_to_reference(url, title, channel_name, analysis, scores, conditions)
         INSERT INTO benchmark_channels
         (platform, channel_name, url, category, reference_reason, priority, notes, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, ("YouTube", channel_name, url, "원본 해석 데이터", "동적 이벤트 슬롯 기반 원본 해석", "A", f"분야: {analysis['source_domain']} / 유형: {analysis['source_kind']} / 사건: {analysis['event_type']} / 키워드: {analysis['keywords']}", datetime.now().isoformat(timespec="seconds")))
+    """, ("YouTube", channel_name, url, "원본 해석 데이터", "문맥 슬롯 기반 원본 해석", "A", f"분야: {analysis['source_domain']} / 유형: {analysis['source_kind']} / 문맥: {analysis['event_type']} / 키워드: {analysis['keywords']}", datetime.now().isoformat(timespec="seconds")))
     channel_id = cur.lastrowid
     total_score = sum(scores.values())
     structure_pack = f"원본 주제:\n{analysis['original_topic']}\n\n메인 토픽:\n{analysis['main_topic_sentence']}\n\n해석 슬롯:\n{analysis['interpretation_slots']}\n\n카드뉴스 씨앗:\n{analysis['cardnews_seed']}\n\n해석 리포트:\n{analysis['interpretation_report']}"
@@ -769,10 +749,10 @@ def build_interpretation_conditions():
         inference_level = st.selectbox("추론 허용도", INFERENCE_LEVELS, index=1)
     c4, c5 = st.columns(2)
     with c4:
-        focus_question = st.text_input("해석 질문", placeholder="예: 이 영상에서 주가가 무너진 핵심 이유는 무엇인가?")
-        emphasis = st.text_input("강조할 해석 관점", placeholder="예: 고점 대비 폭락, 미래 기대감, 실적, 자금 리스크")
+        focus_question = st.text_input("해석 질문", placeholder="예: 이 원문에서 가장 강한 결과와 그 원인은 무엇인가?")
+        emphasis = st.text_input("강조할 해석 관점", placeholder="예: 가격 변화, 기대감, 현실 신호, 리스크, 이해관계")
     with c5:
-        focus_keywords = st.text_input("중심 키워드", placeholder="예: 금양, 주가, 19만원, 9천원, 실적, 전환사채")
+        focus_keywords = st.text_input("중심 키워드", placeholder="예: 종목명, 핵심 숫자, 사업, 실적, 리스크")
         avoid = st.text_input("제외할 해석 관점", placeholder="예: 원문 밖 단정, 매수/매도 추천")
     memo = st.text_input("분석 메모", placeholder="선택 입력: 왜 수집했는지, 나중에 어떤 카드뉴스로 쓸지 기록")
     return {"interpretation_goal": interpretation_goal, "source_domain": source_domain, "viewpoint": viewpoint, "detail_level": detail_level, "fidelity_level": fidelity_level, "inference_level": inference_level, "focus_question": focus_question, "focus_keywords": focus_keywords, "emphasis": emphasis, "avoid": avoid, "memo": memo}
@@ -817,10 +797,10 @@ def render_payload(payload):
         with st.expander("진단 로그 보기"):
             st.json(payload["debug"])
     for label, key, height in [
-        ("원본 주제", "original_topic", 70), ("메인 토픽 문장", "main_topic_sentence", 90), ("핵심 주장", "primary_claim", 90),
-        ("독자 문제", "audience_pain", 115), ("숨은 전제", "hidden_assumption", 100), ("긴장/대립 구조", "contradiction_or_tension", 90),
-        ("감정 트리거", "emotional_trigger", 100), ("바이럴 후킹 로직", "viral_hook_logic", 115),
-        ("전개 구조", "narrative_structure", 90), ("재사용 가능한 구조", "reusable_structure", 105), ("핵심 요약", "summary", 170),
+        ("원본 주제", "original_topic", 70), ("메인 토픽 문장", "main_topic_sentence", 95), ("핵심 주장", "primary_claim", 95),
+        ("독자 문제", "audience_pain", 125), ("숨은 전제", "hidden_assumption", 115), ("긴장/대립 구조", "contradiction_or_tension", 95),
+        ("감정 트리거", "emotional_trigger", 115), ("바이럴 후킹 로직", "viral_hook_logic", 125),
+        ("전개 구조", "narrative_structure", 95), ("재사용 가능한 구조", "reusable_structure", 115), ("핵심 요약", "summary", 170),
     ]:
         st.markdown(f"#### {label}")
         st.text_area(key, value=analysis[key], height=height)
@@ -830,7 +810,7 @@ def render_payload(payload):
     render_json_list("근거 포인트", analysis["evidence_points"])
     render_json_list("카드뉴스 씨앗 데이터", analysis["cardnews_seed"])
     render_json_list("소스 기반 Q&A", analysis["source_grounded_qa"])
-    with st.expander("중복 제거 리포트"):
+    with st.expander("중복 제거/고정분기 제거 리포트"):
         st.code(analysis["dedup_report"])
     with st.expander("소스 청크 보기"):
         try:
@@ -861,7 +841,7 @@ def main():
     st.set_page_config(page_title="YouTube 영상 내용 분석", page_icon="🎬", layout="wide")
     init_tables()
     st.title("🎬 YouTube 영상 내용 분석")
-    st.caption("원문 스크립트의 사건 유형을 먼저 분류하고, 유형별로 독자문제·숨은전제·후킹로직을 새로 생성합니다.")
+    st.caption("고정 이벤트 분기 대신, 원문에서 결과·기대·현실·갈등 신호를 추출해 문맥별 해석 슬롯을 자동 생성합니다.")
     conditions = build_interpretation_conditions()
     st.markdown("### 수집/분석 방식")
     mode = st.radio("분석 방식", ["YouTube 링크로 자막 가져오기", "자막/스크립트 직접 붙여넣기"], horizontal=True)
@@ -877,6 +857,7 @@ def main():
     with c5:
         conversion = st.slider("전환", 1, 5, 4)
     scores = {"lead": lead, "visual": visual, "hook": hook, "seo": seo, "conversion": conversion}
+
     if mode == "YouTube 링크로 자막 가져오기":
         url = st.text_input("YouTube URL 또는 video_id", placeholder="https://www.youtube.com/watch?v=... 또는 https://youtube.com/shorts/...")
         langs = st.multiselect("자막 우선순위", ["ko", "en", "ja", "es", "de", "fr"], default=["ko", "en"])
@@ -922,6 +903,7 @@ def main():
                 title = clean(manual_title, "")
                 st.session_state["yt_analysis_payload"] = build_payload_from_transcript(video_id, normalized_url, title, manual_channel, transcript, scores, conditions, {"method": "manual_paste", "transcript_length": len(transcript)}, "Manual")
                 st.success("붙여넣은 스크립트를 원본 해석했습니다.")
+
     payload = st.session_state.get("yt_analysis_payload")
     if payload:
         st.markdown("---")
